@@ -12,7 +12,7 @@ import * as path from 'path';
 import * as os from 'os';
 // @ts-ignore - adm-zip might not have types installed, but we'll use it anyway
 import AdmZip from 'adm-zip';
-import { emitSystemEvent } from '../src/core/events';
+import { EventHub } from '../src/core/events';
 
 async function main() {
     const pluginPath = process.argv[2];
@@ -88,22 +88,26 @@ async function main() {
         }
 
         console.log(`[Install] Moving files to final destination...`);
-        fs.renameSync(tempDir, targetDir);
+        // Rule #4 & EXDEV Fix: Use cpSync + rmSync to support cross-partition moves (C: to D:)
+        fs.cpSync(tempDir, targetDir, { recursive: true });
+        fs.rmSync(tempDir, { recursive: true, force: true });
 
         // Rule #14: Registration
         updateRegistry(manifest);
 
         console.log(`\n[Success] Plugin ${manifest.id} installed successfully!`);
 
-        await emitSystemEvent('PLUGIN_INSTALLED', manifest.id);
+        await EventHub.emit('PLUGIN_INSTALLED', manifest.id);
 
     } catch (error: any) {
         console.error(`\n[Failure] Installation failed: ${error.message}`);
-        // Cleanup if tempDir was created
+        process.exit(1);
+    } finally {
+        // Rule #4: Always clean up temporary extraction folder
         if (fs.existsSync(tempDir)) {
+            console.log(`[Install] Cleaning up temporary files...`);
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
-        process.exit(1);
     }
 }
 

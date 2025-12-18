@@ -43,6 +43,38 @@ The system uses a **Standardized Event Hub** for real-time reactivity (Rule #18)
 - **Custom Events**: Plugins can define their own "vocabulary" for cross-plugin communication, provided they are declared in the manifest.
 - **Hybrid Approach**: Allows the Core to remain simple while enabling plugins to "invent" their own language.
 
+## 6. Notification Schema
+
+To ensure visual consistency across the management console, all system events are mapped to standardized UI notifications (Toasts) via **Sonner**.
+
+| Event Category | Sonner Type | Icon (Lucide) | Context |
+| :--- | :--- | :--- | :--- |
+| **Plugin Success** | `toast.success` | `PackageCheck` | New installs or successful packs. |
+| **Plugin Removal** | `toast.error` | `PackageX` | Deletions or uninstalls. |
+| **Hardware Sync** | `toast.info` | `Printer` | Printer, Port, or Driver updates. |
+| **System Logic** | `toast.message` | `Terminal` | New plugin creation (`plugin:new`). |
+
+> [!IMPORTANT]
+> **The "Super Toast" Override**: Regardless of the event category, if the event payload contains `status: 'failure'`, the UI MUST use `toast.error` to alert the administrator immediately (Rule #4).
+
+## 7. Protection Locks & Live Challenges (Rule #23)
+
+To prevent accidental deletion of critical infrastructure plugins, the system implements a **Physical Challenge** protocol.
+
+1.  **Locking**: Admins can flag a plugin as `locked: true` in the registry.
+2.  **Protected Deletion**: The `plugin:delete` command will abort if the target plugin is locked.
+3.  **Live Challenge**: Unlocking requires a dynamic PIN.
+    - The CLI generates a random 4-digit PIN.
+    - The PIN is broadcast via the **WebSocket Event Hub** but never stored on disk.
+    - The Admin must read the PIN from the **Debug Console** in the browser and enter it back into the terminal.
+
+## 8. JIT Event Architecture
+
+To simplify the development environment, the system utilizes a **Just-in-Time (JIT)** event server.
+
+- **Self-Hosting**: CLI scripts automatically check if port 8080 is available and host a temporary WebSocket server if necessary.
+- **Persistent Listeners**: The Browser UI aggressively attempts to reconnect to `localhost:8080` every 2 seconds, ensuring zero-configuration event visibility.
+
 ## 5. Development Mode (Mocking)
 
 Following **Rule #10 (Mock-First)**, the system is designed to be functional even without a live Windows environment.

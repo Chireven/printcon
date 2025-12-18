@@ -83,12 +83,49 @@ export const initialize: PluginInitializer = async (api) => {
 
     fs.writeFileSync(path.join(targetDir, 'index.ts'), indexContent);
 
+    // 3. Register in registry.json
+    updateRegistry(manifest, path.join('plugins', typeMap[type], name));
+
     console.log(`Success! Plugin ${name} generated successfully.`);
     console.log(`Location: ${targetDir}`);
 
     await emitSystemEvent('PLUGIN_CREATED', name);
 
     rl.close();
+}
+
+/**
+ * Updates the central registry.json
+ */
+function updateRegistry(manifest: any, relativePath: string) {
+    const registryPath = path.join(process.cwd(), 'src', 'core', 'registry.json');
+    let registry: any[] = [];
+
+    if (fs.existsSync(registryPath)) {
+        try {
+            registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+        } catch (e) {
+            registry = [];
+        }
+    }
+
+    // Check for duplicates
+    if (registry.some(p => p.id === manifest.id)) {
+        console.warn(`[Warning] Plugin ${manifest.id} already exists in registry. Skipping registration.`);
+        return;
+    }
+
+    registry.push({
+        id: manifest.id,
+        name: manifest.name,
+        version: manifest.version,
+        type: manifest.type,
+        path: relativePath.replace(/\\/g, '/'), // Normalize for cross-platform
+        installedAt: new Date().toISOString()
+    });
+
+    fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+    console.log(`[Registry] Registered ${manifest.id} at ${relativePath}`);
 }
 
 main().catch(err => {

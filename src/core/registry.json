@@ -1,1 +1,29 @@
-[]
+[
+  {
+    "id": "printer-manager",
+    "name": "Printer Manager",
+    "version": "1.0.0",
+    "type": "feature",
+    "path": "plugins/features/printer-manager",
+    "installedAt": "2025-12-18T02:33:29.239Z",
+    "recovered": true,
+    "locked": true
+  },
+  {
+    "id": "printer-ports",
+    "name": "Printer Ports",
+    "version": "1.0.0",
+    "type": "feature",
+    "path": "plugins/features/printer-ports",
+    "installedAt": "2025-12-18T03:43:42.165Z"
+  },
+  {
+    "id": "thinprint",
+    "name": "Thinprint",
+    "version": "1.0.0",
+    "type": "feature",
+    "path": "plugins/features/thinprint",
+    "installedAt": "2025-12-18T03:50:43.362Z",
+    "locked": false
+  }
+]

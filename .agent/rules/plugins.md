@@ -49,7 +49,7 @@ All plugins must be distributed as a standard ZIP archive renamed with a .plugin
 15. File Naming
 The plugin:pack script must automatically name the output file [plugin-id]-[version].plugin by reading the id and version fields directly from the manifest.json.  plugin:pack should not overwrite a file if it already exists, unless the force parameter is included.
 
-6. CLI Event Emission
+16. CLI Event Emission
 All lifecycle scripts (install, delete, update) must emit a standardized event to the Event Hub upon successful completion.
 
 17. UI Reactivity
@@ -63,3 +63,16 @@ A plugin may declare custom events it intends to emit in its manifest.json under
 
 20. Subsystem Documentation
 A master technical specification must be maintained at /documentation/plugins/plugins-subsystem.md. This file serves as the Single Source of Truth for the architecture. Any changes to the CLI toolchain, Event Hub schemas, or Registry structure must be reflected in this document before the code is considered "Done."
+
+22. Registry Authority
+The src/core/registry.json is the sole source of truth for the system. No plugin is considered 'active' or 'installed' unless it exists in the registry. All CLI tools must maintain this file's integrity.
+
+23. Protection Locks & Live Challenges
+Any plugin can be flagged as 'Locked' in the registry. Unlocking requires a dynamic PIN challenge. The PIN is generated randomly at the time of the unlock attempt and broadcast exclusively to the Event Hub. It is never stored on disk, ensuring that file-system access alone is insufficient to bypass a lock.
+
+Event Category,Sonner Type,Icon (Lucide),Context
+Plugin Success,toast.success,PackageCheck,New installs or successful packs.
+Plugin Removal,toast.error,PackageX,Deletions or uninstalls.
+Hardware Sync,toast.info,Printer,"Printer, Port, or Driver updates."
+System Logic,toast.message,Terminal,New plugin creation (plugin:new).
+

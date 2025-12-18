@@ -7,7 +7,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { emitSystemEvent } from '../src/core/events';
+import { EventHub } from '../src/core/events';
 
 async function main() {
     const pluginId = process.argv[2];
@@ -18,37 +18,47 @@ async function main() {
         process.exit(1);
     }
 
-    const registryPath = path.join(process.cwd(), 'src', 'core', 'registry.json');
-
-    if (!fs.existsSync(registryPath)) {
-        console.error(`Error: Registry not found at ${registryPath}`);
-        process.exit(1);
-    }
-
-    const content = fs.readFileSync(registryPath, 'utf8');
-    let registry: any[];
     try {
-        registry = JSON.parse(content);
-    } catch (e) {
-        console.error('Error: registry.json is malformed.');
-        process.exit(1);
-    }
+        const registryPath = path.join(process.cwd(), 'src', 'core', 'registry.json');
 
-    const pluginEntry = registry.find(p => p.id === pluginId);
+        if (!fs.existsSync(registryPath)) {
+            console.error(`Error: Registry not found at ${registryPath}`);
+            process.exit(1);
+        }
 
-    if (!pluginEntry) {
-        console.error(`\n[Failure] Error: Plugin ID '${pluginId}' not found in the registry.`);
-        console.log('Available plugins:');
-        registry.forEach(p => console.log(` - ${p.id} (${p.name})`));
-        process.exit(1);
-    }
+        const content = fs.readFileSync(registryPath, 'utf8');
+        let registry: any[];
+        try {
+            registry = JSON.parse(content);
+        } catch (e) {
+            console.error('Error: registry.json is malformed.');
+            process.exit(1);
+        }
 
-    const pluginPath = path.join(process.cwd(), pluginEntry.path);
+        const pluginEntry = registry.find(p => p.id === pluginId);
 
-    console.log(`[Delete] Identified plugin: ${pluginEntry.name}`);
-    console.log(`[Delete] Installation path: ${pluginPath}`);
+        if (!pluginEntry) {
+            console.error(`\n[Failure] Error: Plugin ID '${pluginId}' not found in the registry.`);
+            console.log('Available plugins:');
+            registry.forEach(p => console.log(` - ${p.id} (${p.name})`));
+            process.exit(1);
+        }
 
-    try {
+        // Step 0: Check for Protection Locks (Rule #23)
+        if (pluginEntry.locked) {
+            console.error(`\n[Access Denied] Plugin ${pluginId} is LOCKED.`);
+            console.error(`Status: Rule #23 Protection Active.`);
+            console.log(`Usage: npm run plugin:unlock ${pluginId} to proceed.`);
+
+            await EventHub.emit('PLUGIN_DELETED', pluginId, 'failure');
+            return; // Exit gracefully to hit the finally block
+        }
+
+        const pluginPath = path.join(process.cwd(), pluginEntry.path);
+
+        console.log(`[Delete] Identified plugin: ${pluginEntry.name}`);
+        console.log(`[Delete] Installation path: ${pluginPath}`);
+
         // 1. Remove from disk
         if (fs.existsSync(pluginPath)) {
             console.log(`[Delete] Removing files from disk...`);
@@ -64,10 +74,9 @@ async function main() {
 
         console.log(`\n[Success] Plugin '${pluginId}' has been deleted and unregistered.`);
 
-        await emitSystemEvent('PLUGIN_DELETED', pluginId);
+        await EventHub.emit('PLUGIN_DELETED', pluginId);
     } catch (error: any) {
         console.error(`\n[Failure] Deletion failed: ${error.message}`);
-        process.exit(1);
     }
 }
 
