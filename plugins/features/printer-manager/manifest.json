@@ -1,0 +1,15 @@
+{
+  "id": "printer-manager",
+  "name": "Printer Manager",
+  "version": "1.0.0",
+  "type": "feature",
+  "coreVersion": "^1.0.0",
+  "requiredPermissions": [
+    "printers:view",
+    "printers:edit"
+  ],
+  "entryPoints": {
+    "main": "index.ts",
+    "ui": "UI/MainDashboard.tsx"
+  }
+}

@@ -1,0 +1,19 @@
+{
+    "name": "printcon",
+    "version": "1.0.0",
+    "description": "Enterprise Printer Management Console",
+    "main": "src/core/index.ts",
+    "scripts": {
+        "test:execution": "tsx scripts/test-execution.ts",
+        "plugin:new": "tsx scripts/new.ts",
+        "plugin:install": "tsx scripts/install.ts",
+        "plugin:pack": "tsx scripts/pack.ts",
+        "plugin:delete": "tsx scripts/delete.ts"
+    },
+    "devDependencies": {
+        "tsx": "^4.7.1",
+        "typescript": "^5.3.3",
+        "@types/node": "^20.11.24",
+        "adm-zip": "^0.5.10"
+    }
+}
