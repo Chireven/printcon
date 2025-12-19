@@ -26,7 +26,7 @@ The `manifest.json` is the "Identity Card" of every plugin (Rule #2). If a featu
 ### Required Fields:
 - `id`: Unique kebab-case identifier.
 - `version`: SemVer string.
-- `type`: `feature`, `logging`, or `logonprovider`.
+- `type`: `feature`, `logging`, `logonprovider`, or `printers`.
 - `coreVersion`: Compatibility range (Rule #7).
 - `entryPoints`: Paths to the UI and Main logic files.
 
@@ -41,9 +41,17 @@ To maintain **Security** and **Cross-Platform Compatibility**, plugins never exe
 The system uses a **Standardized Event Hub** for real-time reactivity (Rule #18).
 - **Reserved Events**: System lifecycle events like `PLUGIN_INSTALLED`.
 - **Custom Events**: Plugins can define their own "vocabulary" for cross-plugin communication, provided they are declared in the manifest.
+- **Server-Side Subscriptions**: Plugins can subscribe to events (`PluginAPI.events.on`) during server initialization, enabling a full **Request-Response** pattern without new API routes.
 - **Hybrid Approach**: Allows the Core to remain simple while enabling plugins to "invent" their own language.
 
-## 6. Notification Schema
+## 6. Server-Side Plugin Loader
+
+To adhere to the "Passive Plugin" rule while supporting event listeners, the system uses a **Singleton Plugin Loader**:
+- **Initialization**: Powered by Next.js `instrumentation.ts` hook.
+- **Lifecycle**: On server start, the loader reads `registry.json` and invokes the `initialize(api)` function of every active plugin.
+- **Isolation**: Plugins remain in their own directories and only interact with the system via the injected `PluginAPI`.
+
+## 7. Notification Schema
 
 To ensure visual consistency across the management console, all system events are mapped to standardized UI notifications (Toasts) via **Sonner**.
 

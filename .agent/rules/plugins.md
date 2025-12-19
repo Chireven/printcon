@@ -70,9 +70,11 @@ The src/core/registry.json is the sole source of truth for the system. No plugin
 23. Protection Locks & Live Challenges
 Any plugin can be flagged as 'Locked' in the registry. Unlocking requires a dynamic PIN challenge. The PIN is generated randomly at the time of the unlock attempt and broadcast exclusively to the Event Hub. It is never stored on disk, ensuring that file-system access alone is insufficient to bypass a lock.
 
+24. Dependencies
+Any plugin can have dependencies on other plugins.  The dependencies should be defined in the mainfest.  If a dependency is not installed, it should halt and not install the dependencies until they are installed.  The mainfest should allow for unlimited dependecies.
+
 Event Category,Sonner Type,Icon (Lucide),Context
 Plugin Success,toast.success,PackageCheck,New installs or successful packs.
 Plugin Removal,toast.error,PackageX,Deletions or uninstalls.
 Hardware Sync,toast.info,Printer,"Printer, Port, or Driver updates."
 System Logic,toast.message,Terminal,New plugin creation (plugin:new).
-

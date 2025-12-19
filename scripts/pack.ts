@@ -23,7 +23,7 @@ async function main() {
     }
 
     // Find the plugin folder
-    const searchDirs = ['features', 'logging', 'logonproviders'];
+    const searchDirs = ['features', 'logging', 'logonproviders', 'printers'];
     let pluginSourceDir = '';
 
     for (const dir of searchDirs) {
@@ -78,6 +78,9 @@ async function main() {
     } catch (error: any) {
         console.error(`\n[Failure] Packaging failed: ${error.message}`);
         process.exit(1);
+    } finally {
+        const { listPlugins } = await import('./list.js');
+        await listPlugins();
     }
 }
 

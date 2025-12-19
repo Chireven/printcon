@@ -15,7 +15,8 @@
         "plugin:delete": "tsx scripts/delete.ts",
         "plugin:list": "tsx scripts/list.ts",
         "plugin:lock": "tsx scripts/lock.ts",
-        "plugin:unlock": "tsx scripts/unlock.ts"
+        "plugin:unlock": "tsx scripts/unlock.ts",
+        "plugin:rename": "tsx scripts/rename.ts"
     },
     "dependencies": {
         "lucide-react": "^0.561.0",

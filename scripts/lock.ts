@@ -30,6 +30,9 @@ async function main() {
         console.error(`\n[Error] Lock failed: ${err.message}`);
         console.error(`Ensure the Next.js application is running with 'npm run dev'.`);
         process.exit(1);
+    } finally {
+        const { listPlugins } = await import('./list.js');
+        await listPlugins();
     }
 }
 

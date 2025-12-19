@@ -61,6 +61,10 @@ async function main() {
         process.exit(1);
     } finally {
         rl.close();
+        try {
+            const { listPlugins } = await import('./list.js');
+            await listPlugins();
+        } catch { }
     }
 }
 

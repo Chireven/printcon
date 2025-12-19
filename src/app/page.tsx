@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import DriverRepository from '../../plugins/printers/printer-drivers/ui/DriverRepository';
 import {
     Printer,
     Shield,
@@ -24,6 +25,10 @@ import {
 import { Toaster, toast } from 'sonner';
 import registryData from '../core/registry.json';
 import { useKonamiCode } from '../hooks/useKonamiCode';
+import { SettingsProvider } from '../providers/SettingsProvider';
+import { MockAuthProvider, useAuth } from '../providers/MockAuthProvider';
+import SettingsModal from '../components/settings/SettingsModal';
+import PermissionEditor from '../components/debug/PermissionEditor';
 
 // --- Type Definitions ---
 interface PluginEntry {
@@ -35,7 +40,7 @@ interface PluginEntry {
 
 // --- Components ---
 
-const Header = () => (
+const Header = ({ onOpenSettings }: { onOpenSettings: () => void }) => (
     <header className="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 sticky top-0 z-30">
         <div className="flex items-center gap-4">
             <div className="bg-sky-500/10 p-2 rounded-lg border border-sky-500/20">
@@ -72,10 +77,16 @@ const Header = () => (
                 <Bell className="w-5 h-5" />
                 <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-sky-500 rounded-full border-2 border-slate-900"></div>
             </button>
-            <button className="text-slate-400 hover:text-white transition-colors">
+            <button
+                onClick={onOpenSettings}
+                className="text-slate-400 hover:text-white transition-colors"
+            >
                 <Settings className="w-5 h-5" />
             </button>
-            <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center font-bold text-slate-900 text-xs shadow-lg shadow-sky-500/20 cursor-pointer hover:scale-105 transition-transform">
+            <div
+                onClick={onOpenSettings}
+                className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center font-bold text-slate-900 text-xs shadow-lg shadow-sky-500/20 cursor-pointer hover:scale-105 transition-transform"
+            >
                 JD
             </div>
         </div>
@@ -130,6 +141,21 @@ const Sidebar = ({ plugins, activePlugin, onSelect }: {
                     <h2 className="text-[11px] font-black text-slate-500 uppercase tracking-widest px-4 mb-4">Management Plugins</h2>
                     <nav className="space-y-1">
                         {plugins.filter(p => p.type === 'feature').map(plugin => (
+                            <NavItem
+                                key={plugin.id}
+                                icon={Printer}
+                                label={plugin.name}
+                                isActive={activePlugin === plugin.id}
+                                onClick={() => onSelect(plugin.id)}
+                            />
+                        ))}
+                    </nav>
+                </div>
+
+                <div>
+                    <h2 className="text-[11px] font-black text-slate-500 uppercase tracking-widest px-4 mb-4">Device Management</h2>
+                    <nav className="space-y-1">
+                        {plugins.filter(p => p.type === 'printers').map(plugin => (
                             <NavItem
                                 key={plugin.id}
                                 icon={Printer}
@@ -322,12 +348,29 @@ const MOCK_USER = {
 };
 
 export default function DashboardPage() {
+    return (
+        <MockAuthProvider>
+            <SettingsProvider>
+                <DashboardContent />
+            </SettingsProvider>
+        </MockAuthProvider>
+    );
+}
+
+function DashboardContent() {
     const [activePlugin, setActivePlugin] = useState<string | null>('printer-manager');
     const [plugins] = useState<PluginEntry[]>(registryData as PluginEntry[]);
     const [isDebugMode, setIsDebugMode] = useState(false);
 
+    // Modal States
+    const [showSettings, setShowSettings] = useState(false);
+    const [showDebugPermissions, setShowDebugPermissions] = useState(false);
+
+    const { hasPermission } = useAuth(); // Use new auth hook for logic
+
     useKonamiCode(() => {
-        if (MOCK_USER.permissions.includes('debugmode.activate')) {
+        // Now using dynamic checking via Context (though requires user to have permission initially to activate)
+        if (hasPermission('debugmode.activate')) {
             setIsDebugMode(!isDebugMode);
         }
     });
@@ -395,7 +438,7 @@ export default function DashboardPage() {
 
     return (
         <div className="flex flex-col h-screen w-full bg-slate-900 overflow-hidden">
-            <Header />
+            <Header onOpenSettings={() => setShowSettings(true)} />
             <div className="flex flex-1 overflow-hidden relative">
                 <Sidebar
                     plugins={plugins}
@@ -410,6 +453,8 @@ export default function DashboardPage() {
                     <div className="max-w-6xl mx-auto h-full min-h-[500px]">
                         {activePlugin === 'printer-manager' ? (
                             <PrintersView />
+                        ) : activePlugin === 'printer-drivers' ? (
+                            <DriverRepository />
                         ) : activePlugin ? (
                             <EmptyState pluginId={activePlugin} plugins={plugins} />
                         ) : (
@@ -424,11 +469,18 @@ export default function DashboardPage() {
             <div className="fixed inset-0 pointer-events-none -z-50 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(#38bdf8 0.5px, transparent 0.5px)', backgroundSize: '24px 24px' }}></div>
 
             {isDebugMode && (
-                <div className="fixed bottom-8 right-8 z-50 flex items-center gap-3 bg-red-500 text-white px-4 py-2 rounded-full font-black text-xs shadow-2xl shadow-red-500/40 animate-pulse border-2 border-white/20">
+                <div
+                    onClick={() => setShowDebugPermissions(true)}
+                    className="fixed bottom-8 right-8 z-50 flex items-center gap-3 bg-red-500 text-white px-4 py-2 rounded-full font-black text-xs shadow-2xl shadow-red-500/40 animate-pulse border-2 border-white/20 cursor-pointer hover:bg-red-600 transition-colors"
+                    title="Click to Manage Debug Permissions"
+                >
                     <Bug className="w-4 h-4" />
                     DEBUG MODE ACTIVE
                 </div>
             )}
+
+            <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+            <PermissionEditor isOpen={showDebugPermissions} onClose={() => setShowDebugPermissions(false)} />
 
             <Toaster richColors position="top-right" theme="dark" />
         </div>

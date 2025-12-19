@@ -77,6 +77,9 @@ async function main() {
         await EventHub.emit('PLUGIN_DELETED', pluginId);
     } catch (error: any) {
         console.error(`\n[Failure] Deletion failed: ${error.message}`);
+    } finally {
+        const { listPlugins } = await import('./list.js');
+        await listPlugins();
     }
 }
 

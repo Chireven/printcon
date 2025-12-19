@@ -68,7 +68,8 @@ async function main() {
         const typeMap: Record<string, string> = {
             'logonprovider': 'logonproviders',
             'logging': 'logging',
-            'feature': 'features'
+            'feature': 'features',
+            'printers': 'printers'
         };
 
         const categoryFolder = typeMap[manifest.type as string];
@@ -108,6 +109,9 @@ async function main() {
             console.log(`[Install] Cleaning up temporary files...`);
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
+
+        const { listPlugins } = await import('./list.js');
+        await listPlugins();
     }
 }
 
@@ -130,7 +134,8 @@ function updateRegistry(manifest: any) {
     const typeMap: Record<string, string> = {
         'logonprovider': 'logonproviders',
         'logging': 'logging',
-        'feature': 'features'
+        'feature': 'features',
+        'printers': 'printers'
     };
 
     const categoryFolder = typeMap[manifest.type as string];

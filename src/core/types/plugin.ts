@@ -3,7 +3,15 @@
  * Based on .agent/rules/plugins.md
  */
 
-export type PluginType = 'logonprovider' | 'logging' | 'feature';
+export type PluginType = 'logonprovider' | 'logging' | 'feature' | 'printers';
+
+export interface PrinterDriver {
+  id: string;
+  name: string;
+  version: string;
+  os: string;
+  vendor?: string;
+}
 
 export interface PluginManifest {
   /** Unique identifier for the plugin (e.g., 'printer-manager') */

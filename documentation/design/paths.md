@@ -27,12 +27,14 @@ This document tracks the purpose of various paths within the `printcon` reposito
         - `plugins/features/printer-manager/`: Comprehensive tool for managing network and local printers.
     - `plugins/logging/`: Internal plugins dedicated to unified logging across the core and other plugins.
     - `plugins/logonproviders/`: Integration points for Windows logon and authentication mechanisms.
+    - `plugins/printers/`: Specialized plugins for printer management and fleet control.
 
 - `scripts/`: Orchestration and utility scripts (e.g., PowerShell, Node.js) used for deployment, environment setup, and automation.
     - `scripts/delete.ts`: Cleanup utility for removing plugins and updating the registry.
     - `scripts/install.ts`: Deployment script for installing `.plugin` packages (Rule #4, #5).
     - `scripts/list.ts`: Utility for viewing all currently installed plugins in a table format.
     - `scripts/new.ts`: Interactive scaffolding tool for generating new plugin boilerplate (Rule #2 & #6).
+    - `scripts/rename.ts`: Utility for renaming plugin IDs and folders.
     - `scripts/pack.ts`: Packaging utility to bundle plugins into `.plugin` files (Rule #14, #15).
     - `scripts/test-execution.ts`: Utility script for verifying the core execution engine and mock data.
 
@@ -43,8 +45,10 @@ This document tracks the purpose of various paths within the `printcon` reposito
     - `src/core/`: Primitive system logic, base classes, and fundamental service implementations.
         - `src/core/events.ts`: Global event hub utility for system-wide broadcasts (Rule #18).
         - `src/core/execution.ts`: Core engine for executing OS-level tools and managing mocks.
+        - `src/core/loader.ts`: Server-side Plugin Loader that initializes plugins on startup.
         - `src/core/registry.json`: Central database of currently installed and active plugins.
         - `src/core/types/`: Global TypeScript type definitions and interfaces.
     - `src/lib/`: Reusable utility functions and vendor integrations that are not specific to the core logic.
+    - `src/instrumentation.ts`: Next.js Server Lifecycle Hook for initializing the Plugin Loader.
 
 - `vite.config.ts`: Configuration for the Vite build engine and dev server.

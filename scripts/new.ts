@@ -19,12 +19,12 @@ async function main() {
     console.log('\n--- PrintCon Plugin Generator ---');
 
     const name = await rl.question('Plugin Name (e.g. printer-status): ');
-    const typeInput = await rl.question('Plugin Type (logonprovider, logging, feature): ');
+    const typeInput = await rl.question('Plugin Type (logonprovider, logging, feature, printers): ');
 
     const type = typeInput.toLowerCase().trim();
 
-    if (!['logonprovider', 'logging', 'feature'].includes(type)) {
-        console.error('Invalid plugin type. Must be: logonprovider, logging, or feature.');
+    if (!['logonprovider', 'logging', 'feature', 'printers'].includes(type)) {
+        console.error('Invalid plugin type. Must be: logonprovider, logging, feature, or printers.');
         process.exit(1);
     }
 
@@ -32,7 +32,8 @@ async function main() {
     const typeMap: Record<string, string> = {
         'logonprovider': 'logonproviders',
         'logging': 'logging',
-        'feature': 'features'
+        'feature': 'features',
+        'printers': 'printers'
     };
 
     const targetDir = path.join(baseDir, typeMap[type], name);
@@ -92,6 +93,9 @@ export const initialize: PluginInitializer = async (api) => {
     await emitSystemEvent('PLUGIN_CREATED', name);
 
     rl.close();
+
+    const { listPlugins } = await import('./list.js');
+    await listPlugins();
 }
 
 /**
@@ -128,7 +132,11 @@ function updateRegistry(manifest: any, relativePath: string) {
     console.log(`[Registry] Registered ${manifest.id} at ${relativePath}`);
 }
 
-main().catch(err => {
+main().catch(async err => {
     console.error('\nAn error occurred:', err);
+    try {
+        const { listPlugins } = await import('./list.js');
+        await listPlugins();
+    } catch { }
     process.exit(1);
 });

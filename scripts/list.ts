@@ -9,7 +9,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-async function main() {
+import { fileURLToPath } from 'url';
+
+export async function listPlugins() {
     const registryPath = path.join(process.cwd(), 'src', 'core', 'registry.json');
     const pluginsDir = path.join(process.cwd(), 'plugins');
 
@@ -26,7 +28,7 @@ async function main() {
 
     // 2. Auto-Recovery: Sync disk folders with registry
     console.log('[Sync] Checking for orphaned plugin folders...');
-    const categories = ['features', 'logging', 'logonproviders'];
+    const categories = ['features', 'logging', 'logonproviders', 'printers'];
     let syncCount = 0;
 
     for (const cat of categories) {
@@ -80,40 +82,90 @@ async function main() {
         return;
     }
 
-    console.log('='.repeat(100));
-    console.log(' INSTALLED PLUGINS'.padEnd(100));
-    console.log('='.repeat(100));
+    const col = {
+        id: 20,
+        ver: 10,
+        type: 15,
+        name: 25,
+        lock: 8,
+        stat: 12
+    };
 
-    const header = [
-        'ID'.padEnd(20),
-        'VERSION'.padEnd(10),
-        'TYPE'.padEnd(15),
-        'NAME'.padEnd(25),
-        'STATUS'
-    ].join(' ');
+    const colors = {
+        reset: '\x1b[0m',
+        bright: '\x1b[1m',
+        dim: '\x1b[2m',
+        cyan: '\x1b[36m',
+        green: '\x1b[32m',
+        yellow: '\x1b[33m',
+        red: '\x1b[31m',
+        magenta: '\x1b[35m',
+        blue: '\x1b[34m',
+    };
+
+    const totalWidth = (col.id + 2) + (col.ver + 2) + (col.type + 2) + (col.name + 2) + (col.lock + 2) + (col.stat + 2) + 5;
+
+    const drawColorLine = (left: string, mid: string, right: string, sep: string) => {
+        return colors.blue + left +
+            '─'.repeat(col.id + 2) + sep +
+            '─'.repeat(col.ver + 2) + sep +
+            '─'.repeat(col.type + 2) + sep +
+            '─'.repeat(col.name + 2) + sep +
+            '─'.repeat(col.lock + 2) + sep +
+            '─'.repeat(col.stat + 2) + right + colors.reset;
+    };
+
+    const title = ' INSTALLED PLUGINS ';
+    const titlePadding = Math.floor((totalWidth - title.length) / 2);
+    const centeredTitle = ' '.repeat(titlePadding) + colors.bright + colors.cyan + title + colors.reset + ' '.repeat(totalWidth - title.length - titlePadding);
+
+    console.log('\n' + colors.blue + '┌' + '─'.repeat(totalWidth) + '┐' + colors.reset);
+    console.log(colors.blue + '│' + colors.reset + centeredTitle + colors.blue + '│' + colors.reset);
+    console.log(drawColorLine('├', '┬', '┤', '┬'));
+
+    const header = colors.blue + '│ ' + colors.reset +
+        colors.bright + colors.cyan + 'ID'.padEnd(col.id) + colors.reset + colors.blue + ' │ ' + colors.reset +
+        colors.bright + colors.cyan + 'VERSION'.padEnd(col.ver) + colors.reset + colors.blue + ' │ ' + colors.reset +
+        colors.bright + colors.cyan + 'TYPE'.padEnd(col.type) + colors.reset + colors.blue + ' │ ' + colors.reset +
+        colors.bright + colors.cyan + 'NAME'.padEnd(col.name) + colors.reset + colors.blue + ' │ ' + colors.reset +
+        colors.bright + colors.cyan + 'LOCKED'.padEnd(col.lock) + colors.reset + colors.blue + ' │ ' + colors.reset +
+        colors.bright + colors.cyan + 'STATUS'.padEnd(col.stat) + colors.reset + colors.blue + ' │' + colors.reset;
 
     console.log(header);
-    console.log('-'.repeat(100));
+    console.log(drawColorLine('├', '┼', '┤', '┼'));
 
     for (const entry of registry) {
-        let status = entry.recovered ? 'RECOVERED' : 'VERIFIED';
+        const isLocked = !!entry.locked;
+        const lockedText = isLocked ? colors.red + 'YES'.padEnd(col.lock) + colors.reset : colors.green + 'NO'.padEnd(col.lock) + colors.reset;
 
-        const row = [
-            entry.id.padEnd(20),
-            entry.version.padEnd(10),
-            entry.type.padEnd(15),
-            entry.name.padEnd(25),
-            status.padEnd(10)
-        ].join(' ');
+        const isRecovered = !!entry.recovered;
+        const statusText = isRecovered ? colors.yellow + 'RECOVERED'.padEnd(col.stat) + colors.reset : colors.green + 'VERIFIED'.padEnd(col.stat) + colors.reset;
+
+        let typeColor = colors.reset;
+        if (entry.type === 'printers') typeColor = colors.magenta;
+        else if (entry.type === 'logging') typeColor = colors.blue;
+        else if (entry.type === 'logonprovider') typeColor = colors.cyan;
+        else if (entry.type === 'feature') typeColor = colors.yellow;
+
+        const row = colors.blue + '│ ' + colors.reset +
+            colors.bright + entry.id.substring(0, col.id).padEnd(col.id) + colors.reset + colors.blue + ' │ ' + colors.reset +
+            entry.version.substring(0, col.ver).padEnd(col.ver) + colors.blue + ' │ ' + colors.reset +
+            typeColor + entry.type.substring(0, col.type).padEnd(col.type) + colors.reset + colors.blue + ' │ ' + colors.reset +
+            entry.name.substring(0, col.name).padEnd(col.name) + colors.blue + ' │ ' + colors.reset +
+            lockedText + colors.blue + ' │ ' + colors.reset +
+            statusText + colors.blue + ' │' + colors.reset;
 
         console.log(row);
     }
 
-    console.log('='.repeat(100));
-    console.log(`Total Plugins: ${registry.length}\n`);
+    console.log(drawColorLine('└', '┴', '┘', '┴'));
+    console.log(` ${colors.dim}Total Plugins: ${registry.length}${colors.reset}\n`);
 }
 
-main().catch(err => {
-    console.error('\nAn error occurred:', err);
-    process.exit(1);
-});
+// Run if called directly
+if (import.meta.url.startsWith('file:') && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+    listPlugins().catch(err => {
+        console.error('\nAn error occurred:', err);
+        process.exit(1);
+    });
+}
