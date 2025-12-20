@@ -28,7 +28,7 @@ export async function listPlugins() {
 
     // 2. Auto-Recovery: Sync disk folders with registry
     console.log('[Sync] Checking for orphaned plugin folders...');
-    const categories = ['features', 'logging', 'logonproviders', 'printers'];
+    const categories = ['features', 'logging', 'logonproviders', 'printers', 'databaseProviders'];
     let syncCount = 0;
 
     for (const cat of categories) {
@@ -85,7 +85,7 @@ export async function listPlugins() {
     const col = {
         id: 20,
         ver: 10,
-        type: 15,
+        type: 18,
         name: 25,
         lock: 8,
         stat: 12
@@ -146,6 +146,7 @@ export async function listPlugins() {
         else if (entry.type === 'logging') typeColor = colors.blue;
         else if (entry.type === 'logonprovider') typeColor = colors.cyan;
         else if (entry.type === 'feature') typeColor = colors.yellow;
+        else if (entry.type === 'databaseProvider') typeColor = colors.red;
 
         const row = colors.blue + '│ ' + colors.reset +
             colors.bright + entry.id.substring(0, col.id).padEnd(col.id) + colors.reset + colors.blue + ' │ ' + colors.reset +

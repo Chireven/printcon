@@ -2,6 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import DriverRepository from '../../plugins/printers/printer-drivers/ui/DriverRepository';
+// @ts-ignore - Plugins outside src
+// @ts-ignore - Plugins outside src
+import MssqlSettings from '../../plugins/databaseProviders/database-mssql/ui/Settings';
+// @ts-ignore - Plugins outside src
+import PrinterDriverSettings from '../../plugins/printers/printer-drivers/ui/Settings';
+import { EventHub } from '../core/events';
+import { useSettings } from '../providers/SettingsProvider';
 import {
     Printer,
     Shield,
@@ -125,6 +132,24 @@ const Sidebar = ({ plugins, activePlugin, onSelect }: {
     activePlugin: string | null,
     onSelect: (id: string) => void
 }) => {
+    const [statsMap, setStatsMap] = useState<Record<string, { label: string, value: string | number }[]>>({});
+    const { highContrast } = useSettings();
+
+    useEffect(() => {
+        const handleStatusUpdate = (payload: any) => {
+            if (payload && payload.pluginId && payload.rows) {
+                setStatsMap(prev => ({
+                    ...prev,
+                    [payload.pluginId]: payload.rows
+                }));
+            }
+        };
+
+        EventHub.on('plugin:status:update', handleStatusUpdate);
+    }, []);
+
+    const currentStats = activePlugin ? statsMap[activePlugin] : undefined;
+
     return (
         <aside className="fixed inset-y-0 left-0 w-72 bg-slate-900 border-r border-slate-800 flex flex-col z-40">
             <div className="flex-1 overflow-y-auto px-6 py-8 custom-scrollbar space-y-10">
@@ -170,10 +195,10 @@ const Sidebar = ({ plugins, activePlugin, onSelect }: {
                 <div>
                     <h2 className="text-[11px] font-black text-slate-500 uppercase tracking-widest px-4 mb-4">Infrastructure</h2>
                     <nav className="space-y-1">
-                        {plugins.filter(p => ['logging', 'logonprovider'].includes(p.type)).map(plugin => (
+                        {plugins.filter(p => ['logging', 'logonprovider', 'databaseProvider'].includes(p.type)).map(plugin => (
                             <NavItem
                                 key={plugin.id}
-                                icon={plugin.type === 'logging' ? Database : Shield}
+                                icon={['logging', 'databaseProvider'].includes(plugin.type) ? Database : Shield}
                                 label={plugin.name}
                                 disabled
                             />
@@ -182,11 +207,32 @@ const Sidebar = ({ plugins, activePlugin, onSelect }: {
                 </div>
             </div>
 
-            <div className="p-6 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm sticky bottom-0">
-                <button className="w-full flex items-center justify-center gap-3 py-3 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-all text-xs font-bold border border-slate-700 shadow-sm">
-                    <Plus className="w-4 h-4 text-sky-400" />
-                    Add Extensions
-                </button>
+            <div className={`p-6 border-t ${highContrast ? 'border-white bg-black' : 'border-slate-800 bg-slate-900/50'} backdrop-blur-sm sticky bottom-0`}>
+                {currentStats ? (
+                    <div className="w-full animate-in fade-in slide-in-from-bottom-2">
+                        <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Plugin Status</h3>
+                        <div className={`w-full overflow-hidden rounded-lg border ${highContrast ? 'border-white' : 'border-slate-700'}`}>
+                            <table className="w-full text-xs">
+                                <tbody>
+                                    {currentStats.map((row, i) => (
+                                        <tr key={i} className={`border-b last:border-0 ${highContrast ? 'border-white/20' : 'border-slate-700/50'}`}>
+                                            <td className={`bg-slate-900/50 p-2 font-medium ${highContrast ? 'text-white' : 'text-slate-400'}`}>
+                                                {row.label}
+                                            </td>
+                                            <td className="p-2 text-right font-bold text-white tabular-nums bg-black/20">
+                                                {row.value}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="w-full flex items-center justify-center p-4 rounded-xl border border-dashed border-slate-800 text-slate-600 text-[10px] uppercase font-bold tracking-wider">
+                        No Active Status
+                    </div>
+                )}
             </div>
         </aside>
     );
@@ -340,6 +386,106 @@ const EmptyState = ({ pluginId, plugins }: { pluginId: string, plugins: PluginEn
     );
 };
 
+const SystemSettingsView = ({ plugins }: { plugins: PluginEntry[] }) => {
+    const [activeTab, setActiveTab] = useState<string>('general');
+
+    // Group plugins by type
+    const groupedPlugins = plugins.reduce((acc, p) => {
+        const type = p.type;
+        if (!acc[type]) acc[type] = [];
+        acc[type].push(p);
+        return acc;
+    }, {} as Record<string, PluginEntry[]>);
+
+    // Sort types alphabetically
+    const sortedTypes = Object.keys(groupedPlugins).sort();
+
+    const formatType = (type: string) => {
+        // Handle camelCase (databaseProvider -> Database Provider) and capitalize first letter
+        const split = type.replace(/([A-Z])/g, ' $1');
+        return split.charAt(0).toUpperCase() + split.slice(1);
+    };
+
+    return (
+        <div className="flex bg-white rounded-xl shadow-2xl shadow-black/50 border border-slate-800 h-[calc(100vh-140px)] overflow-hidden">
+            {/* Menu Bar */}
+            <div className="w-64 bg-slate-900 border-r border-slate-800 p-4 overflow-y-auto custom-scrollbar">
+                <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 px-2">System</h2>
+                <button onClick={() => setActiveTab('general')} className={`w-full text-left px-3 py-2 text-xs font-bold rounded-lg mb-6 transition-all ${activeTab === 'general' ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                    General Settings
+                </button>
+
+                <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-2 sticky top-0 bg-slate-900 z-10 pb-2">Plugins</h2>
+                <div className="space-y-6">
+                    {sortedTypes.map(type => (
+                        <div key={type}>
+                            <h3 className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-2 px-2 border-b border-slate-800 pb-1">{formatType(type)}</h3>
+                            <div className="space-y-1">
+                                {groupedPlugins[type].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
+                                    <button
+                                        key={p.id}
+                                        onClick={() => setActiveTab(p.id)}
+                                        className={`w-full text-left px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-all ${activeTab === p.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+                                    >
+                                        <div className={`w-1.5 h-1.5 rounded-full ${activeTab === p.id ? 'bg-white' : 'bg-slate-600'}`}></div>
+                                        {p.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 bg-slate-950 p-8 overflow-y-auto relative custom-scrollbar">
+                <div className="absolute inset-0 bg-grid-slate-900/[0.04] bg-[bottom_1px_center] pointer-events-none" style={{ backgroundSize: '24px 24px', maskImage: 'linear-gradient(to bottom, transparent, black)' }}></div>
+
+                {activeTab === 'general' ? (
+                    <div className="relative">
+                        <h1 className="text-2xl font-black text-white mb-6 tracking-tight">System Settings</h1>
+                        <div className="p-6 bg-slate-900/50 rounded-xl border border-slate-800">
+                            <p className="text-slate-400 text-sm">Global system preferences can be configured here.</p>
+                        </div>
+                    </div>
+                ) : (
+                    <PluginConfigContainer pluginId={activeTab} />
+                )}
+            </div>
+        </div>
+    );
+};
+
+const PluginConfigContainer = ({ pluginId }: { pluginId: string }) => {
+    if (pluginId === 'database-mssql') {
+        return <MssqlSettings />;
+    }
+
+    if (pluginId === 'printer-drivers') {
+        return <PrinterDriverSettings />;
+    }
+
+    return (
+        <div className="relative animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center justify-between mb-8">
+                <div>
+                    <h1 className="text-2xl font-black text-white tracking-tight">{pluginId}</h1>
+                    <p className="text-slate-500 text-xs uppercase font-bold tracking-widest mt-1">Configuration</p>
+                </div>
+                <div className="px-3 py-1 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[10px] font-mono">
+                    v1.0.0
+                </div>
+            </div>
+
+            <div className="p-12 border-2 border-dashed border-slate-800 rounded-xl flex flex-col items-center justify-center text-slate-600 bg-slate-900/20">
+                <Settings className="w-12 h-12 mb-4 opacity-50 animate-spin-slow" />
+                <p className="font-medium">Plugin configuration UI</p>
+                <p className="text-xs mt-2 font-mono bg-slate-900 px-3 py-1.5 rounded border border-slate-800 text-slate-500">Target: plugins/*/{pluginId}/Settings.tsx</p>
+            </div>
+        </div>
+    );
+};
+
 // --- Mock Authentication ---
 const MOCK_USER = {
     name: 'Joe Demo',
@@ -359,7 +505,7 @@ export default function DashboardPage() {
 
 function DashboardContent() {
     const [activePlugin, setActivePlugin] = useState<string | null>('printer-manager');
-    const [plugins] = useState<PluginEntry[]>(registryData as PluginEntry[]);
+    const [plugins, setPlugins] = useState<PluginEntry[]>([]);
     const [isDebugMode, setIsDebugMode] = useState(false);
 
     // Modal States
@@ -367,6 +513,20 @@ function DashboardContent() {
     const [showDebugPermissions, setShowDebugPermissions] = useState(false);
 
     const { hasPermission } = useAuth(); // Use new auth hook for logic
+
+    const fetchPlugins = async () => {
+        try {
+            const res = await fetch('/api/system/plugins');
+            const data = await res.json();
+            setPlugins(data);
+        } catch (e) {
+            console.error('Failed to fetch plugins:', e);
+        }
+    };
+
+    useEffect(() => {
+        fetchPlugins();
+    }, []);
 
     useKonamiCode(() => {
         // Now using dynamic checking via Context (though requires user to have permission initially to activate)
@@ -401,6 +561,11 @@ function DashboardContent() {
             if (data?.status === 'failure') {
                 toast.error(event, { ...config, icon: <AlertCircle className="w-4 h-4" /> });
                 return;
+            }
+
+            // Refresh registry on system changes
+            if (event.startsWith('system:plugin:') || event.startsWith('PLUGIN_')) {
+                fetchPlugins();
             }
 
             switch (event) {
@@ -438,7 +603,7 @@ function DashboardContent() {
 
     return (
         <div className="flex flex-col h-screen w-full bg-slate-900 overflow-hidden">
-            <Header onOpenSettings={() => setShowSettings(true)} />
+            <Header onOpenSettings={() => setActivePlugin('system-settings')} />
             <div className="flex flex-1 overflow-hidden relative">
                 <Sidebar
                     plugins={plugins}
@@ -455,6 +620,8 @@ function DashboardContent() {
                             <PrintersView />
                         ) : activePlugin === 'printer-drivers' ? (
                             <DriverRepository />
+                        ) : activePlugin === 'system-settings' ? (
+                            <SystemSettingsView plugins={plugins} />
                         ) : activePlugin ? (
                             <EmptyState pluginId={activePlugin} plugins={plugins} />
                         ) : (

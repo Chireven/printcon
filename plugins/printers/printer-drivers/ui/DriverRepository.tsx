@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Package, Download, AlertCircle, Loader2, RefreshCw, Database, Factory } from 'lucide-react';
 import { PrinterDriver } from '../../../../src/core/types/plugin';
+import { EventHub } from '../../../../src/core/events';
 import { GuardedButton } from '../../../../src/components/ui/GuardedButton';
 import { useSettings } from '../../../../src/providers/SettingsProvider';
 import AddDriverModal from './AddDriverModal';
@@ -87,6 +88,27 @@ export default function DriverRepository() {
         setDrivers([driver, ...drivers]);
     };
 
+    const normalizeVendor = (vendor: string) => {
+        if (!vendor) return 'Unknown';
+        const v = vendor.toLowerCase().replace(/[^a-z]/g, '');
+        if (v === 'hp' || v.includes('hewlett')) return 'HP';
+        return vendor;
+    };
+
+    const uniqueVendors = new Set(drivers.map(d => normalizeVendor(d.vendor))).size;
+
+    // Emit stats to EventHub for Sidebar usage
+    useEffect(() => {
+        if (drivers.length > 0) {
+            EventHub.emit('plugin:status:update', 'printer-drivers', 'success', {
+                rows: [
+                    { label: 'Total Drivers', value: drivers.length },
+                    { label: 'Manufacturers', value: uniqueVendors }
+                ]
+            });
+        }
+    }, [drivers, uniqueVendors]);
+
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center p-12 text-slate-400">
@@ -112,10 +134,9 @@ export default function DriverRepository() {
         );
     }
 
-    const uniqueVendors = new Set(drivers.filter(d => d.vendor).map(d => d.vendor)).size;
 
     return (
-        <div className="p-6 bg-slate-900/50 rounded-xl border border-slate-800 pb-32 relative">
+        <div className="p-6 bg-slate-900/50 rounded-xl border border-slate-800 relative">
 
             <div className="flex items-center justify-between mb-6">
                 {/* Left: Title */}
@@ -143,7 +164,7 @@ export default function DriverRepository() {
                         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                     </button>
                     <GuardedButton
-                        requiredPermission="driver:install"
+                        requiredPermission="driver:upload"
                         onClick={() => setIsAddModalOpen(true)}
                         className={`p-2 rounded-lg transition-colors shadow-none ${highContrast
                             ? 'bg-slate-800 text-white border-2 border-white'
@@ -176,7 +197,7 @@ export default function DriverRepository() {
                                 <td className="px-4 py-3 text-slate-500">{driver.os}</td>
                                 <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
                                     <GuardedButton
-                                        requiredPermission="driver:install"
+                                        requiredPermission="driver:upload"
                                         onClick={() => handleInstall(driver.id)}
                                         disabled={installing === driver.id}
                                         variant="primary"
@@ -222,42 +243,6 @@ export default function DriverRepository() {
                 onAdd={handleAddDriver}
             />
 
-            {/* Floating Stats Bar - Sticky Bottom */}
-            {!isAddModalOpen && (
-                <div
-                    className={`z-[100] bg-slate-900 border rounded-full py-2 px-10 shadow-2xl flex items-center gap-12 ring-1 ring-white/10 ${highContrast ? 'border-white' : 'border-slate-700/50'}`}
-                    style={{
-                        position: 'sticky',
-                        bottom: '24px',
-                        marginLeft: 'auto',
-                        marginRight: 'auto',
-                        width: 'fit-content'
-                    }}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className="p-1.5 bg-sky-500/10 rounded-full">
-                            <Database className="w-4 h-4 text-sky-400" />
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-[10px] uppercase font-bold text-slate-500 leading-tight">Total Drivers</span>
-                            <span className="text-sm font-bold text-white leading-none tabular-nums">{drivers.length}</span>
-                        </div>
-                    </div>
-
-                    {/* Dot Separator */}
-                    <div className="w-1.5 h-1.5 rounded-full bg-slate-500" />
-
-                    <div className="flex items-center gap-3">
-                        <div className="p-1.5 bg-violet-500/10 rounded-full">
-                            <Factory className="w-4 h-4 text-violet-400" />
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-[10px] uppercase font-bold text-slate-500 leading-tight">Manufacturers</span>
-                            <span className="text-sm font-bold text-white leading-none tabular-nums">{uniqueVendors}</span>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

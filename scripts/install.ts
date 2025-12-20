@@ -69,7 +69,8 @@ async function main() {
             'logonprovider': 'logonproviders',
             'logging': 'logging',
             'feature': 'features',
-            'printers': 'printers'
+            'printers': 'printers',
+            'databaseProvider': 'databaseProviders'
         };
 
         const categoryFolder = typeMap[manifest.type as string];
@@ -98,7 +99,7 @@ async function main() {
 
         console.log(`\n[Success] Plugin ${manifest.id} installed successfully!`);
 
-        await EventHub.emit('PLUGIN_INSTALLED', manifest.id);
+        await EventHub.emit('system:plugin:install', manifest.id, 'success');
 
     } catch (error: any) {
         console.error(`\n[Failure] Installation failed: ${error.message}`);
@@ -135,7 +136,8 @@ function updateRegistry(manifest: any) {
         'logonprovider': 'logonproviders',
         'logging': 'logging',
         'feature': 'features',
-        'printers': 'printers'
+        'printers': 'printers',
+        'databaseProvider': 'databaseProviders'
     };
 
     const categoryFolder = typeMap[manifest.type as string];

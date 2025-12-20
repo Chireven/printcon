@@ -51,6 +51,17 @@ async function main() {
         }
 
         const pluginEntry = registry[entryIndex];
+
+        // Rule #23: Check for Protection Locks
+        if (pluginEntry.locked) {
+            console.error(`\n[Access Denied] Plugin ${currentId} is LOCKED.`);
+            console.error(`Status: Rule #23 Protection Active.`);
+            console.log(`Usage: npm run plugin:unlock ${currentId} to proceed.`);
+
+            await EventHub.emit('system:plugin:rename', currentId, 'failure');
+            return;
+        }
+
         const oldPath = path.join(process.cwd(), pluginEntry.path);
 
         // 1. Calculate new folder path
@@ -94,7 +105,7 @@ async function main() {
 
         console.log(`\n[Success] Plugin '${currentId}' renamed to '${newId}' successfully.`);
 
-        await EventHub.emit('PLUGIN_RENAMED', { oldId: currentId, newId: newId });
+        await EventHub.emit('system:plugin:rename', newId, 'success', { oldId: currentId, newId: newId });
 
     } catch (error: any) {
         console.error(`\n[Failure] Rename failed: ${error.message}`);

@@ -1,0 +1,12 @@
+{
+  "id": "database-mssql",
+  "name": "Database Mssql",
+  "version": "1.0.0",
+  "type": "databaseProvider",
+  "coreVersion": "^1.0.0",
+  "requiredPermissions": [],
+  "entryPoints": {
+    "main": "index.ts",
+    "settings": "ui/Settings.tsx"
+  }
+}

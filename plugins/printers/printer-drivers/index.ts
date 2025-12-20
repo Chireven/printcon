@@ -1,21 +1,8 @@
 // import { PluginInitializer } from '../../../src/core/types/plugin';
 
 // Mock Data
-const generateMockDrivers = () => {
-    const vendors = ['HP', 'Canon', 'Epson', 'Brother', 'Kyocera', 'Xerox'];
-    return Array.from({ length: 1000 }, (_, i) => {
-        const vendor = vendors[Math.floor(Math.random() * vendors.length)];
-        return {
-            id: `mock-${i + 1}`,
-            name: `${vendor} Generic Driver ${i + 1}`,
-            version: `${Math.floor(Math.random() * 10)}.${Math.floor(Math.random() * 10)}.${Math.floor(Math.random() * 100)}`,
-            os: 'Windows x64',
-            vendor: vendor
-        };
-    });
-};
-
-export const MOCK_DRIVERS = generateMockDrivers();
+// Data cleared by request
+export const MOCK_DRIVERS: any[] = [];
 
 export const initialize = async (api: any) => {
     // console.log('[PrinterDrivers] Initializing...');

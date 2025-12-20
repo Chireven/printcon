@@ -9,7 +9,7 @@ interface PermissionEditorProps {
 
 const AVAILABLE_PERMISSIONS = [
     { id: 'read:drivers', label: 'View Drivers' },
-    { id: 'driver:install', label: 'Install Drivers' },
+    { id: 'driver:upload', label: 'Upload Drivers' },
     { id: 'driver:remove', label: 'Remove Drivers' },
     { id: 'plugin.install', label: 'Install Plugins' },
     { id: 'plugin.delete', label: 'Delete Plugins' },

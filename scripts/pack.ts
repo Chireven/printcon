@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 // @ts-ignore
 import AdmZip from 'adm-zip';
-import { emitSystemEvent } from '../src/core/events';
+import { EventHub } from '../src/core/events';
 
 async function main() {
     const pluginId = process.argv[2];
@@ -23,7 +23,7 @@ async function main() {
     }
 
     // Find the plugin folder
-    const searchDirs = ['features', 'logging', 'logonproviders', 'printers'];
+    const searchDirs = ['features', 'logging', 'logonproviders', 'printers', 'databaseProviders'];
     let pluginSourceDir = '';
 
     for (const dir of searchDirs) {
@@ -74,7 +74,7 @@ async function main() {
         console.log(`\n[Tip] You can now share this .plugin file with a teammate for installation using:`);
         console.log(`npm run plugin:install ${outPath}`);
 
-        await emitSystemEvent('PLUGIN_PACKED', pluginId);
+        await EventHub.emit('system:plugin:pack', pluginId, 'success');
     } catch (error: any) {
         console.error(`\n[Failure] Packaging failed: ${error.message}`);
         process.exit(1);

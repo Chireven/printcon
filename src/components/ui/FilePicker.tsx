@@ -6,81 +6,68 @@ import {
     HardDrive,
     FileCode,
     X,
-    Check
+    Check,
+    Loader2,
+    AlertCircle
 } from 'lucide-react';
 
 interface FileSystemItem {
     name: string;
     type: 'folder' | 'file';
-    children?: FileSystemItem[]; // For folders
-    ext?: string; // For files
+    ext?: string;
+    path: string; // Absolute path
 }
-
-// Mock File System Structure
-const MOCK_FS: FileSystemItem = {
-    name: 'D:',
-    type: 'folder',
-    children: [
-        {
-            name: 'Drivers',
-            type: 'folder',
-            children: [
-                {
-                    name: 'HP_Universal_v6',
-                    type: 'folder',
-                    children: [
-                        { name: 'hp_universal.inf', type: 'file', ext: 'inf' },
-                        { name: 'hp_print.dll', type: 'file', ext: 'dll' },
-                        { name: 'readme.txt', type: 'file', ext: 'txt' }
-                    ]
-                },
-                {
-                    name: 'Canon_Generic_Plus',
-                    type: 'folder',
-                    children: [
-                        { name: 'canon_ufr.inf', type: 'file', ext: 'inf' },
-                        { name: 'setup.exe', type: 'file', ext: 'exe' }
-                    ]
-                },
-                {
-                    name: 'Brother_Series',
-                    type: 'folder',
-                    children: [
-                        { name: 'br_hll2350.inf', type: 'file', ext: 'inf' }
-                    ]
-                },
-                {
-                    name: 'Downloads',
-                    type: 'folder',
-                    children: [
-                        { name: 'installer.msi', type: 'file', ext: 'msi' }
-                    ]
-                }
-            ]
-        },
-        {
-            name: 'System',
-            type: 'folder',
-            children: []
-        }
-    ]
-};
 
 interface FilePickerProps {
     onSelect: (path: string) => void;
     onCancel: () => void;
+    selectionType?: 'folder' | 'file';
 }
 
-export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel }) => {
-    // Current navigation stack (path)
-    const [pathStack, setPathStack] = useState<FileSystemItem[]>([MOCK_FS]);
-    const [currentFolder, setCurrentFolder] = useState<FileSystemItem>(MOCK_FS);
+export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, selectionType = 'file' }) => {
+    const [currentPath, setCurrentPath] = useState<string>(''); // Empty = Root/Drives
+    const [pathStack, setPathStack] = useState<string[]>([]); // History
+    const [items, setItems] = useState<FileSystemItem[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
-    // Derived state
-    const currentPathString = pathStack.map(item => item.name).join('\\');
+    // Fetch Content
+    useEffect(() => {
+        const fetchLevel = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const res = await fetch('/api/system/filesystem', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: currentPath })
+                });
+                const data = await res.json();
 
-    // Check if the current folder is valid for selection (contains .inf)
-    const hasInf = currentFolder.children?.some(child => child.type === 'file' && child.ext === 'inf') || false;
+                if (data.status === 'success') {
+                    setItems(data.items);
+                } else {
+                    setError(data.message);
+                }
+            } catch (e: any) {
+                setError(e.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchLevel();
+    }, [currentPath]);
+
+    // Validation
+    const hasInf = items.some(i => i.type === 'file' && i.ext === 'inf');
+    const isValid = selectionType === 'folder'
+        ? currentPath !== '' // Valid if inside a drive/folder (not at drive root options? Actually drives are valid roots, but empty string is root-list)
+        : hasInf;
+
+    // For Select Folder button: If we are at root (Drives list), we probably can't select "Root". User must select a drive.
+    // If currentPath is empty, we are viewing list of drives. Can't select "System".
+    const canSelect = isValid && currentPath !== '';
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -90,17 +77,26 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel }) =>
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onCancel]);
 
-    const handleNavigate = (folder: FileSystemItem) => {
-        if (folder.type !== 'folder') return;
-        setPathStack([...pathStack, folder]);
-        setCurrentFolder(folder);
+
+    const handleNavigate = (item: FileSystemItem) => {
+        if (item.type !== 'folder') return;
+        setPathStack([...pathStack, currentPath]);
+        setCurrentPath(item.path);
     };
 
     const handleUp = () => {
-        if (pathStack.length <= 1) return;
-        const newStack = pathStack.slice(0, -1);
-        setPathStack(newStack);
-        setCurrentFolder(newStack[newStack.length - 1]);
+        if (currentPath === '') return;
+
+        // Complex logic: Going up from "D:\" should go to "" (Drive List).
+        // Or we use pathStack history.
+        if (pathStack.length > 0) {
+            const prev = pathStack[pathStack.length - 1];
+            setPathStack(pathStack.slice(0, -1));
+            setCurrentPath(prev);
+        } else {
+            // Fallback
+            setCurrentPath('');
+        }
     };
 
     return (
@@ -109,7 +105,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel }) =>
             <div className="bg-slate-800 p-4 border-b border-slate-700 flex items-center justify-between">
                 <div className="flex items-center gap-2 text-slate-200 font-medium overflow-hidden">
                     <HardDrive className="w-4 h-4 text-sky-500 shrink-0" />
-                    <span className="truncate text-xs font-mono">{currentPathString}</span>
+                    <span className="truncate text-xs font-mono">{currentPath || 'My PC'}</span>
                 </div>
                 <button onClick={onCancel} className="text-slate-400 hover:text-white">
                     <X className="w-5 h-5" />
@@ -118,58 +114,71 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel }) =>
 
             {/* Browser */}
             <div className="flex-1 overflow-y-auto p-2">
-                {/* Up Button */}
-                {pathStack.length > 1 && (
-                    <div
-                        onClick={handleUp}
-                        className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-800/50 cursor-pointer text-slate-400 hover:text-white transition-colors"
-                    >
-                        <ChevronLeft className="w-5 h-5" />
-                        <span className="text-sm">.. (Parent Directory)</span>
+                {loading ? (
+                    <div className="h-full flex items-center justify-center text-sky-500 gap-2">
+                        <Loader2 className="w-6 h-6 animate-spin" />
+                        <span className="text-sm font-bold">Loading...</span>
                     </div>
-                )}
-
-                {/* Items */}
-                {currentFolder.children?.map((item, idx) => (
-                    <div
-                        key={idx}
-                        onClick={() => handleNavigate(item)}
-                        className={`
-                            flex items-center gap-3 p-3 rounded-lg transition-colors
-                            ${item.type === 'folder' ? 'cursor-pointer hover:bg-slate-800 text-slate-200 hover:text-white' : 'text-slate-500 cursor-default'}
-                        `}
-                    >
-                        {item.type === 'folder' ? (
-                            <Folder className="w-5 h-5 text-sky-500" />
-                        ) : item.ext === 'inf' ? (
-                            <FileCode className="w-5 h-5 text-emerald-500" />
-                        ) : (
-                            <File className="w-5 h-5" />
+                ) : error ? (
+                    <div className="h-full flex flex-col items-center justify-center text-red-400 gap-2">
+                        <AlertCircle className="w-8 h-8" />
+                        <span className="text-sm font-bold">{error}</span>
+                        <button onClick={() => setCurrentPath('')} className="bg-slate-800 px-4 py-2 rounded text-xs text-white mt-2">Go to Root</button>
+                    </div>
+                ) : (
+                    <>
+                        {/* Up Button */}
+                        {currentPath !== '' && (
+                            <div
+                                onClick={handleUp}
+                                className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-800/50 cursor-pointer text-slate-400 hover:text-white transition-colors"
+                            >
+                                <ChevronLeft className="w-5 h-5" />
+                                <span className="text-sm">.. (Parent Directory)</span>
+                            </div>
                         )}
-                        <span className="text-sm">{item.name}</span>
-                    </div>
-                ))}
 
-                {currentFolder.children?.length === 0 && (
-                    <div className="text-center p-8 text-slate-600 text-xs italic">
-                        This folder is empty.
-                    </div>
+                        {items.map((item, idx) => (
+                            <div
+                                key={idx}
+                                onClick={() => handleNavigate(item)}
+                                className={`
+                                    flex items-center gap-3 p-3 rounded-lg transition-colors
+                                    ${item.type === 'folder' ? 'cursor-pointer hover:bg-slate-800 text-slate-200 hover:text-white' : 'text-slate-500 cursor-default'}
+                                `}
+                            >
+                                {item.type === 'folder' ? (
+                                    currentPath === '' ? <HardDrive className="w-5 h-5 text-sky-400" /> : <Folder className="w-5 h-5 text-sky-500" />
+                                ) : item.ext === 'inf' ? (
+                                    <FileCode className="w-5 h-5 text-emerald-500" />
+                                ) : (
+                                    <File className="w-5 h-5" />
+                                )}
+                                <span className="text-sm">{item.name}</span>
+                            </div>
+                        ))}
+                    </>
                 )}
             </div>
 
             {/* Footer */}
             <div className="bg-slate-800 p-4 border-t border-slate-700 flex justify-between items-center gap-4">
                 <div className="text-xs text-slate-400 flex items-center gap-2">
-                    {hasInf ? (
-                        <span className="text-emerald-400 flex items-center gap-1">
-                            <Check className="w-3 H-3" /> Valid Driver Found (.inf)
-                        </span>
+                    {selectionType === 'file' ? (
+                        hasInf ? (
+                            <span className="text-emerald-400 flex items-center gap-1">
+                                <Check className="w-3 H-3" /> Valid Driver Found (.inf)
+                            </span>
+                        ) : (
+                            <span className="text-amber-500/80">No .inf file</span>
+                        )
                     ) : (
-                        <span className="text-amber-500/80">
-                            No .inf file in this folder
+                        <span className="text-sky-400 flex items-center gap-1">
+                            {currentPath || 'Select a Drive'}
                         </span>
                     )}
                 </div>
+
                 <div className="flex gap-2">
                     <button
                         onClick={onCancel}
@@ -178,11 +187,11 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel }) =>
                         Cancel
                     </button>
                     <button
-                        onClick={() => onSelect(currentPathString)}
-                        disabled={!hasInf}
+                        onClick={() => onSelect(currentPath)}
+                        disabled={!canSelect}
                         className="px-6 py-2 rounded-lg bg-sky-500 text-slate-900 text-xs font-bold hover:bg-sky-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-sky-500/20"
                     >
-                        Select Folder
+                        {selectionType === 'folder' ? 'Select Folder' : 'Select Package'}
                     </button>
                 </div>
             </div>

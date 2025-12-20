@@ -33,17 +33,13 @@ async function handleMockExecution(
 
     switch (scriptName) {
         case 'get-printers':
-            return [
-                { "id": "1", "name": "HR-LaserJet", "status": "Online", "jobs": 0 },
-                { "id": "2", "name": "Marketing-Color", "status": "Paper Jam", "jobs": 4 },
-                { "id": "3", "name": "Warehouse-Labels", "status": "Offline", "jobs": 0 }
-            ];
+            return [];
 
         case 'get-ports':
-            return ['IP_192.168.1.50', 'LPT1', 'USB001'];
+            return [];
 
         case 'get-drivers':
-            return ['HP Universal Print Driver', 'Microsoft XPS Document Writer'];
+            return [];
 
         default:
             return { success: true, mock: true };

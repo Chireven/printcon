@@ -50,7 +50,7 @@ async function main() {
             console.error(`Status: Rule #23 Protection Active.`);
             console.log(`Usage: npm run plugin:unlock ${pluginId} to proceed.`);
 
-            await EventHub.emit('PLUGIN_DELETED', pluginId, 'failure');
+            await EventHub.emit('system:plugin:delete', pluginId, 'failure');
             return; // Exit gracefully to hit the finally block
         }
 
@@ -74,7 +74,7 @@ async function main() {
 
         console.log(`\n[Success] Plugin '${pluginId}' has been deleted and unregistered.`);
 
-        await EventHub.emit('PLUGIN_DELETED', pluginId);
+        await EventHub.emit('system:plugin:delete', pluginId, 'success');
     } catch (error: any) {
         console.error(`\n[Failure] Deletion failed: ${error.message}`);
     } finally {

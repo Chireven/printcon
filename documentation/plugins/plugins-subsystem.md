@@ -92,4 +92,31 @@ Following **Rule #10 (Mock-First)**, the system is designed to be functional eve
 - **Testing Logic**: This allows UI developers to build and test complex workflows using only the mock data, ensuring high velocity and safety.
 
 ---
-*Last Updated: 2025-12-17*
+
+## 9. Configuration UI
+
+To allow plugins to expose settings to the system administrator, the architecture supports a dedicated **System Settings** view.
+
+1.  **Manifest Declaration**:
+    The plugin must specify a `settings` entry point in `manifest.json`:
+    ```json
+    "entryPoints": {
+      "main": "server/index.js",
+      "settings": "ui/Settings.tsx"
+    }
+    ```
+
+2.  **Core Discovery**:
+    The Core engine reads the registry, identifies plugins with a valid `settings` entry point, and lists them in the **System Settings > Plugins** navigation menu.
+
+3.  **Local Configuration Persistence**:
+    To comply with data isolation rules, plugins must store their configuration **locally** within their own directory (`plugins/category/id/config.json`).
+    
+    The Core provides a standardized API for this:
+    - **GET** `/api/system/plugins/[pluginId]/config`: Reads `config.json`.
+    - **POST** `/api/system/plugins/[pluginId]/config`: Writes `config.json`.
+    
+    Plugin UI components should use this API to fetch and save their state, rather than relying on global environment variables or external databases.
+
+---
+*Last Updated: 2025-12-19*

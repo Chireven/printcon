@@ -28,6 +28,10 @@ This document tracks the purpose of various paths within the `printcon` reposito
     - `plugins/logging/`: Internal plugins dedicated to unified logging across the core and other plugins.
     - `plugins/logonproviders/`: Integration points for Windows logon and authentication mechanisms.
     - `plugins/printers/`: Specialized plugins for printer management and fleet control.
+        - `plugins/printers/printer-drivers/`: Driver package repository with SHA256 deduplication.
+            - `plugins/printers/printer-drivers/api/`: Self-contained API logic isolated within the plugin.
+                - `plugins/printers/printer-drivers/api/upload.ts`: Driver upload endpoint logic with formData parsing and service integration.
+            - `plugins/printers/printer-drivers/service.ts`: Business logic layer for driver storage, deduplication, and model support management.
 
 - `scripts/`: Orchestration and utility scripts (e.g., PowerShell, Node.js) used for deployment, environment setup, and automation.
     - `scripts/delete.ts`: Cleanup utility for removing plugins and updating the registry.
@@ -49,6 +53,7 @@ This document tracks the purpose of various paths within the `printcon` reposito
         - `src/core/registry.json`: Central database of currently installed and active plugins.
         - `src/core/types/`: Global TypeScript type definitions and interfaces.
     - `src/lib/`: Reusable utility functions and vendor integrations that are not specific to the core logic.
+        - `src/lib/interfaces/`: Shared contracts for plugin implementation (e.g. Database Providers).
     - `src/instrumentation.ts`: Next.js Server Lifecycle Hook for initializing the Plugin Loader.
 
 - `vite.config.ts`: Configuration for the Vite build engine and dev server.

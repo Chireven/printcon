@@ -9,6 +9,7 @@
         "build": "next build",
         "start": "next start",
         "test:execution": "tsx scripts/test-execution.ts",
+        "pack-driver": "tsx scripts/pack-driver.ts",
         "plugin:new": "tsx scripts/new.ts",
         "plugin:install": "tsx scripts/install.ts",
         "plugin:pack": "tsx scripts/pack.ts",
@@ -20,6 +21,7 @@
     },
     "dependencies": {
         "lucide-react": "^0.561.0",
+        "mssql": "^12.2.0",
         "next": "^16.0.10",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",

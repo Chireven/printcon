@@ -7,6 +7,77 @@
   "requiredPermissions": [],
   "entryPoints": {
     "main": "index.ts",
-    "ui": "ui/DriverRepository.tsx"
+    "ui": "ui/DriverRepository.tsx",
+    "settings": "ui/Settings.tsx"
+  },
+  "database": {
+    "schema": "plg_printer_drivers",
+    "tables": [
+      {
+        "name": "Packages",
+        "columns": [
+          {
+            "name": "Id",
+            "type": "INT",
+            "nullable": false,
+            "primaryKey": true,
+            "identity": true
+          },
+          {
+            "name": "PackageId",
+            "type": "NVARCHAR(255)",
+            "nullable": false
+          },
+          {
+            "name": "StorageHash",
+            "type": "NVARCHAR(64)",
+            "nullable": false
+          },
+          {
+            "name": "OriginalFilename",
+            "type": "NVARCHAR(255)",
+            "nullable": true
+          },
+          {
+            "name": "UploadedBy",
+            "type": "NVARCHAR(100)",
+            "nullable": true
+          },
+          {
+            "name": "CreatedAt",
+            "type": "DATETIME2",
+            "nullable": false,
+            "defaultValue": "GETUTCDATE()"
+          }
+        ]
+      },
+      {
+        "name": "SupportedModels",
+        "columns": [
+          {
+            "name": "Id",
+            "type": "INT",
+            "nullable": false,
+            "primaryKey": true,
+            "identity": true
+          },
+          {
+            "name": "PackageId",
+            "type": "INT REFERENCES [plg_printer_drivers].[Packages](Id)",
+            "nullable": false
+          },
+          {
+            "name": "ModelName",
+            "type": "NVARCHAR(255)",
+            "nullable": false
+          },
+          {
+            "name": "HardwareId",
+            "type": "NVARCHAR(450)",
+            "nullable": false
+          }
+        ]
+      }
+    ]
   }
 }

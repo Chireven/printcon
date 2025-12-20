@@ -10,10 +10,10 @@ declare global {
 
 export class EventHub {
     private static get listeners(): Map<string, Array<(payload: any) => void>> {
-        if (!global.systemEventListeners) {
-            global.systemEventListeners = new Map();
+        if (!globalThis.systemEventListeners) {
+            globalThis.systemEventListeners = new Map();
         }
-        return global.systemEventListeners;
+        return globalThis.systemEventListeners;
     }
 
     static async emit(

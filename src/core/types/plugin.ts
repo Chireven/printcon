@@ -3,7 +3,7 @@
  * Based on .agent/rules/plugins.md
  */
 
-export type PluginType = 'logonprovider' | 'logging' | 'feature' | 'printers';
+export type PluginType = 'logonprovider' | 'logging' | 'feature' | 'printers' | 'databaseProvider';
 
 export interface PrinterDriver {
   id: string;
@@ -28,6 +28,8 @@ export interface PluginManifest {
   entryPoints?: {
     ui?: string;
     main: string;
+    /** Relative path to the Settings component (e.g., 'Settings.tsx') */
+    settings?: string;
   };
 }
 

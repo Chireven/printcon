@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline/promises';
-import { emitSystemEvent } from '../src/core/events';
+import { EventHub } from '../src/core/events';
 
 async function main() {
     const rl = readline.createInterface({
@@ -19,24 +19,34 @@ async function main() {
     console.log('\n--- PrintCon Plugin Generator ---');
 
     const name = await rl.question('Plugin Name (e.g. printer-status): ');
-    const typeInput = await rl.question('Plugin Type (logonprovider, logging, feature, printers): ');
+    const typeInput = await rl.question('Plugin Type (logonprovider, logging, feature, printers, databaseProvider): ');
 
-    const type = typeInput.toLowerCase().trim();
+    const normalizedInput = typeInput.toLowerCase().trim();
+    const typeMap: Record<string, string> = {
+        'logonprovider': 'logonprovider',
+        'logging': 'logging',
+        'feature': 'feature',
+        'printers': 'printers',
+        'databaseprovider': 'databaseProvider'
+    };
 
-    if (!['logonprovider', 'logging', 'feature', 'printers'].includes(type)) {
-        console.error('Invalid plugin type. Must be: logonprovider, logging, feature, or printers.');
+    const type = typeMap[normalizedInput];
+
+    if (!type) {
+        console.error('Invalid plugin type. Must be: logonprovider, logging, feature, printers, or databaseProvider.');
         process.exit(1);
     }
 
     const baseDir = path.join(process.cwd(), 'plugins');
-    const typeMap: Record<string, string> = {
+    const folderMap: Record<string, string> = {
         'logonprovider': 'logonproviders',
         'logging': 'logging',
         'feature': 'features',
-        'printers': 'printers'
+        'printers': 'printers',
+        'databaseProvider': 'databaseProviders'
     };
 
-    const targetDir = path.join(baseDir, typeMap[type], name);
+    const targetDir = path.join(baseDir, folderMap[type], name);
 
     if (fs.existsSync(targetDir)) {
         console.error(`\nError: Plugin directory already exists at ${targetDir}`);
@@ -90,7 +100,7 @@ export const initialize: PluginInitializer = async (api) => {
     console.log(`Success! Plugin ${name} generated successfully.`);
     console.log(`Location: ${targetDir}`);
 
-    await emitSystemEvent('PLUGIN_CREATED', name);
+    await EventHub.emit('system:plugin:create', name, 'success');
 
     rl.close();
 
