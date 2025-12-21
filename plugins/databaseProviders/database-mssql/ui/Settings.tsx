@@ -25,7 +25,11 @@ import {
 type LogonType = 'windows' | 'sql';
 type ConnectionStatus = 'idle' | 'testing' | 'success' | 'failure';
 
-export default function MssqlSettings() {
+interface MssqlSettingsProps {
+    initialAction?: string | null;
+}
+
+export default function MssqlSettings({ initialAction }: MssqlSettingsProps) {
     // --- State ---
     const [config, setConfig] = useState({
         server: '',
@@ -46,6 +50,13 @@ export default function MssqlSettings() {
     const [schemaResults, setSchemaResults] = useState<any[]>([]);
     const [schemaStatus, setSchemaStatus] = useState<'idle' | 'testing' | 'fixing'>('idle');
 
+    // Handle initial action
+    useEffect(() => {
+        if (initialAction === 'test-schema') {
+            setShowSchemaModal(true);
+        }
+    }, [initialAction]);
+
     // Load saved configuration on mount
     useEffect(() => {
         const loadConfig = async () => {
@@ -63,18 +74,7 @@ export default function MssqlSettings() {
         loadConfig();
     }, []);
 
-    // Load schema definitions on modal open
-    useEffect(() => {
-        if (showSchemaModal && schemaResults.length === 0) {
-            fetch('/api/schema/definitions')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        setSchemaResults(data.definitions);
-                    }
-                });
-        }
-    }, [showSchemaModal]);
+    // Old useEffect removed in favor of combined logic below
 
     // --- Handlers ---
     const handleChange = (field: string, value: string) => {
@@ -196,7 +196,12 @@ export default function MssqlSettings() {
 
     const handleTestSchema = async () => {
         setSchemaStatus('testing');
+
+        // simple helper for delay
+        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
         try {
+            // 1. Fetch full validation results
             const res = await fetch('/api/schema/validate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -206,7 +211,29 @@ export default function MssqlSettings() {
 
             if (res.ok && data.status === 'success') {
                 console.log('Schema Validation Results:', data.tables);
-                setSchemaResults(data.tables);
+
+                // 2. Progressive Update Loop
+                const fullResults = data.tables;
+
+                // Reset to "Testing..." state if needed, or just overlay updates
+                // We'll iterate and update the specific item in the array
+                for (const result of fullResults) {
+                    setSchemaResults(prev => {
+                        const next = [...prev];
+                        const idx = next.findIndex(t => t.tableName === result.tableName);
+                        if (idx !== -1) {
+                            next[idx] = result;
+                        } else {
+                            // If new definition found (dynamic?), add it
+                            next.push(result);
+                        }
+                        return next;
+                    });
+
+                    // Pleasant delay for "real-time" feel
+                    await delay(150);
+                }
+
                 toast.info('Schema Validation Complete', {
                     description: data.needsHealing ? 'Issues found' : 'Schema is healthy'
                 });
@@ -244,6 +271,20 @@ export default function MssqlSettings() {
         }
     };
 
+    // Load schema definitions on modal open
+    useEffect(() => {
+        if (showSchemaModal) {
+            // Always fetch fresh definitions to capture runtime plugin additions
+            fetch('/api/schema/definitions')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        setSchemaResults(data.definitions);
+                    }
+                });
+        }
+    }, [showSchemaModal]);
+
     // --- Render Helpers ---
     const ConnectionBadge = () => {
         switch (status) {
@@ -260,26 +301,7 @@ export default function MssqlSettings() {
 
     return (
         <div className="max-w-5xl mx-auto pb-20 fade-in animate-in">
-            {/* Header / Title Section */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8 pb-8 border-b border-slate-800">
-                <div className="flex items-center gap-5">
-                    {/* Logo Area */}
-                    <div className="w-16 h-16 bg-slate-900 rounded-xl shadow-inner border border-slate-800 flex items-center justify-center p-3 relative overflow-hidden group">
-                        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                        <Database className="w-8 h-8 text-sky-500 relative z-10" />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
-                            SQL Server
-                            <span className="text-[10px] font-mono bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700">v1.0</span>
-                        </h1>
-                        <p className="text-slate-400 text-sm mt-1 font-medium">Configure connection to Microsoft SQL Server instance.</p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-4">
-                    <ConnectionBadge />
-                </div>
-            </div>
+            {/* Header Removed - Handled by Shell */}
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 {/* Main Configuration Form - Left Column */}
@@ -491,7 +513,7 @@ export default function MssqlSettings() {
                                     <p className="text-[10px] text-slate-500 mb-2">Validate tables and columns against expected schema.</p>
                                     <button
                                         onClick={() => setShowSchemaModal(true)}
-                                        disabled={!isSaved || databaseExists !== true}
+                                        disabled={!isSaved || status === 'failure'}
                                         className="w-full py-2 bg-slate-950 hover:bg-emerald-900/30 text-slate-400 hover:text-emerald-400 border border-slate-800 hover:border-emerald-500/50 rounded-md text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                                     >
                                         Test Database Schema
@@ -512,7 +534,7 @@ export default function MssqlSettings() {
                             <button
                                 onClick={handleTestSchema}
                                 disabled={schemaStatus !== 'idle'}
-                                className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg transition-all disabled:opacity-50 flex items-center gap-2"
+                                className="px-4 py-2 bg-sky-500/10 hover:bg-sky-500/20 text-sky-500 border border-sky-500 text-xs font-bold rounded-lg transition-all disabled:opacity-50 flex items-center gap-2"
                             >
                                 {schemaStatus === 'testing' ? (
                                     <>
@@ -557,9 +579,9 @@ export default function MssqlSettings() {
                                     const displayName = isSchema ? table.tableName.replace('Schema: ', '') : table.tableName;
 
                                     const className = isGreen
-                                        ? 'bg-emerald-500 border-emerald-400 text-white shadow-lg shadow-emerald-900/20'
+                                        ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-lg shadow-emerald-900/20'
                                         : isRed
-                                            ? 'bg-red-500 border-red-400 text-white shadow-lg shadow-red-900/20'
+                                            ? 'bg-red-500/10 border-red-500 text-red-400 shadow-lg shadow-red-900/20'
                                             : 'bg-black border-slate-800 text-slate-500'; // Default/Idle
 
                                     return (
@@ -570,7 +592,7 @@ export default function MssqlSettings() {
                                         >
                                             {isSchema ? <FolderTree className="w-4 h-4" /> : <Table className="w-4 h-4" />}
                                             {displayName}
-                                            {isRed && <AlertCircle className="w-4 h-4 ml-1 text-white/90" />}
+                                            {isRed && <AlertCircle className="w-4 h-4 ml-1 text-red-400" />}
                                         </div>
                                     );
                                 })}
@@ -585,7 +607,7 @@ export default function MssqlSettings() {
                                     <button
                                         onClick={handleFixSchema}
                                         disabled={schemaStatus === 'fixing'}
-                                        className="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition-all shadow-xl shadow-amber-900/20 flex items-center gap-2"
+                                        className="px-6 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500 text-xs font-bold rounded-lg transition-all shadow-xl shadow-amber-900/20 flex items-center gap-2"
                                     >
                                         {schemaStatus === 'fixing' ? (
                                             <>

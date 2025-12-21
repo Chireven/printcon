@@ -23,7 +23,7 @@ async function main() {
     }
 
     // Find the plugin folder
-    const searchDirs = ['features', 'logging', 'logonproviders', 'printers', 'databaseProviders'];
+    const searchDirs = ['features', 'loggingProviders', 'logonproviders', 'printers', 'databaseProviders', 'storageProviders'];
     let pluginSourceDir = '';
 
     for (const dir of searchDirs) {

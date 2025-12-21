@@ -28,7 +28,7 @@ export async function listPlugins() {
 
     // 2. Auto-Recovery: Sync disk folders with registry
     console.log('[Sync] Checking for orphaned plugin folders...');
-    const categories = ['features', 'logging', 'logonproviders', 'printers', 'databaseProviders'];
+    const categories = ['features', 'logging', 'logonproviders', 'printers', 'databaseProviders', 'storageProviders'];
     let syncCount = 0;
 
     for (const cat of categories) {
@@ -45,12 +45,14 @@ export async function listPlugins() {
             const manifestPath = path.join(fullPluginPath, 'manifest.json');
 
             // If not in registry but folder exists
-            if (!registry.some(p => p.path === pluginPath)) {
-                if (fs.existsSync(manifestPath)) {
-                    try {
-                        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-                        console.log(`[Sync] Found unregistered plugin: ${manifest.id}. Adding...`);
+            const registryEntry = registry.find(p => p.path === pluginPath);
 
+            if (fs.existsSync(manifestPath)) {
+                try {
+                    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+                    if (!registryEntry) {
+                        console.log(`[Sync] Found unregistered plugin: ${manifest.id}. Adding...`);
                         registry.push({
                             id: manifest.id,
                             name: manifest.name,
@@ -61,9 +63,15 @@ export async function listPlugins() {
                             recovered: true
                         });
                         syncCount++;
-                    } catch (e) {
-                        console.warn(`[Warning] Could not read manifest for ${folder} at ${manifestPath}`);
+                    } else if (registryEntry.version !== manifest.version) {
+                        // Version Mismatch - Update Registry
+                        console.log(`[Sync] Updating version for ${manifest.id}: ${registryEntry.version} -> ${manifest.version}`);
+                        registryEntry.version = manifest.version;
+                        registryEntry.name = manifest.name; // helpful to sync name too
+                        syncCount++;
                     }
+                } catch (e) {
+                    console.warn(`[Warning] Could not read manifest for ${folder} at ${manifestPath}`);
                 }
             }
         }
@@ -83,10 +91,11 @@ export async function listPlugins() {
     }
 
     const col = {
+        act: 3,
         id: 20,
         ver: 10,
         type: 18,
-        name: 25,
+        name: 20, // Name reduced to fit
         lock: 8,
         stat: 12
     };
@@ -103,10 +112,11 @@ export async function listPlugins() {
         blue: '\x1b[34m',
     };
 
-    const totalWidth = (col.id + 2) + (col.ver + 2) + (col.type + 2) + (col.name + 2) + (col.lock + 2) + (col.stat + 2) + 5;
+    const totalWidth = (col.act + 2) + (col.id + 2) + (col.ver + 2) + (col.type + 2) + (col.name + 2) + (col.lock + 2) + (col.stat + 2) + 6;
 
     const drawColorLine = (left: string, mid: string, right: string, sep: string) => {
         return colors.blue + left +
+            '─'.repeat(col.act + 2) + sep +
             '─'.repeat(col.id + 2) + sep +
             '─'.repeat(col.ver + 2) + sep +
             '─'.repeat(col.type + 2) + sep +
@@ -124,6 +134,7 @@ export async function listPlugins() {
     console.log(drawColorLine('├', '┬', '┤', '┬'));
 
     const header = colors.blue + '│ ' + colors.reset +
+        colors.bright + colors.cyan + 'A'.padEnd(col.act) + colors.reset + colors.blue + ' │ ' + colors.reset +
         colors.bright + colors.cyan + 'ID'.padEnd(col.id) + colors.reset + colors.blue + ' │ ' + colors.reset +
         colors.bright + colors.cyan + 'VERSION'.padEnd(col.ver) + colors.reset + colors.blue + ' │ ' + colors.reset +
         colors.bright + colors.cyan + 'TYPE'.padEnd(col.type) + colors.reset + colors.blue + ' │ ' + colors.reset +
@@ -147,8 +158,13 @@ export async function listPlugins() {
         else if (entry.type === 'logonprovider') typeColor = colors.cyan;
         else if (entry.type === 'feature') typeColor = colors.yellow;
         else if (entry.type === 'databaseProvider') typeColor = colors.red;
+        else if (entry.type === 'storageProvider') typeColor = colors.green;
+
+        const isActive = entry.active !== false;
+        const activeText = isActive ? colors.green + '☑'.padEnd(col.act) + colors.reset : colors.dim + '☐'.padEnd(col.act) + colors.reset;
 
         const row = colors.blue + '│ ' + colors.reset +
+            activeText + colors.blue + ' │ ' + colors.reset +
             colors.bright + entry.id.substring(0, col.id).padEnd(col.id) + colors.reset + colors.blue + ' │ ' + colors.reset +
             entry.version.substring(0, col.ver).padEnd(col.ver) + colors.blue + ' │ ' + colors.reset +
             typeColor + entry.type.substring(0, col.type).padEnd(col.type) + colors.reset + colors.blue + ' │ ' + colors.reset +

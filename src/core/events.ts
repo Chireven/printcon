@@ -16,6 +16,12 @@ export class EventHub {
         return globalThis.systemEventListeners;
     }
 
+    private static broadcaster: ((payload: any) => void) | null = null;
+
+    static setBroadcaster(fn: (payload: any) => void) {
+        this.broadcaster = fn;
+    }
+
     static async emit(
         event: SystemEvent['event'],
         pluginId: string,
@@ -41,20 +47,13 @@ export class EventHub {
             this.listeners.get(event)?.forEach(callback => callback(payload.data));
         }
 
-        // Broadcast to SSE (Client-Side) via API
-        try {
-            // Note: In production, use a proper message queue.
-            // For this mock, we fetch the events endpoint to broadcast.
-            // But wait, the API route imports 'broadcastSystemEvent'.
-            // Here we need to tell the API layer to broadcast.
-            // We can't import API logic into Core.
-            // The API layer hooks into this EventHub?
-            // Actually, the command route emits to EventHub, but who broadcasts to SSE?
-            // The command route does: `broadcastSystemEvent`.
-            // So EventHub is purely for BACKEND internal communication (Loader <-> API).
-            // It doesn't need to fetch anything.
-        } catch (e) {
-            console.error('[EventHub] Broadcast failed', e);
+        // Broadcast to SSE (Client-Side) via Bridge
+        if (this.broadcaster) {
+            try {
+                this.broadcaster(payload);
+            } catch (e) {
+                console.error('[EventHub] Broadcast failed', e);
+            }
         }
     }
 

@@ -17,7 +17,7 @@ export async function POST(req: Request) {
         currentSchemaCols.forEach((row: any) => {
             const schema = row.SchemaName || 'dbo';
             const table = row.TableName;
-            const key = `[${schema.toLowerCase()}].[${table.toLowerCase()}]`; // Normalize case
+            const key = `[${schema.toLowerCase()}].[${table.toLowerCase()}]`;
 
             if (!currentTables[key]) {
                 currentTables[key] = [];
@@ -34,9 +34,10 @@ export async function POST(req: Request) {
         console.log('[SchemaValidate] Found Schemas:', currentSchemasList);
 
         // 2. Get Expected State
-        const { tables: expectedTables, schemas: expectedSchemas } = await getAggregatedSchema();
+        const { tables: expectedTables, schemas: expectedSchemas, schemaToPluginMap } = await getAggregatedSchema();
 
         const results: any[] = [];
+        const validatedPlugins = new Set<string>();
 
         // 3. Validate Schemas
         expectedSchemas.forEach(s => {
@@ -47,6 +48,11 @@ export async function POST(req: Request) {
                     status: exists ? 'valid' : 'missing',
                     issues: exists ? [] : [`Schema '${s}' does not exist.`]
                 });
+
+                if (exists) {
+                    const pluginId = schemaToPluginMap[s];
+                    if (pluginId) validatedPlugins.add(pluginId);
+                }
             }
         });
 
@@ -67,11 +73,11 @@ export async function POST(req: Request) {
                     const found = currentCols.find(c => c.name.toLowerCase() === expectedCol.name.toLowerCase());
                     if (!found) {
                         status = 'invalid';
-                        issues.push(`Missing column: ${expectedCol.name}`);
+                        issues.push(`Missing column: ${expectedCol.name} `);
                     }
                 });
             } else {
-                console.log(`[SchemaValidate] Missing Table: ${key}`);
+                console.log(`[SchemaValidate] Missing Table: ${key} `);
             }
 
             results.push({
@@ -82,6 +88,36 @@ export async function POST(req: Request) {
         });
 
         const hasIssues = results.some(r => r.status !== 'valid');
+
+        // 5. Clear Alerts for Validated Plugins
+        // If a plugin's schema was validated successfully, we update its System Status to green.
+        if (validatedPlugins.size > 0) {
+            // Import dynamically to avoid circular dependencies that might cause 500 errors
+            const { SystemStatus } = await import('../../../../core/system-status');
+
+            validatedPlugins.forEach(pluginId => {
+                // Check if this plugin has any outstanding issues in the results
+                // We need to know which tables belong to which plugin (via schema)
+                // Since our 'results' are flat, we filter by schema name.
+
+                // Find schema name for this plugin
+                const schemaName = Object.keys(schemaToPluginMap).find(key => schemaToPluginMap[key] === pluginId);
+
+                if (schemaName) {
+                    const pluginIssues = results.filter(r => {
+                        // Check if result belongs to this schema
+                        return r.tableName.includes(schemaName) && r.status !== 'valid';
+                    });
+
+                    if (pluginIssues.length === 0) {
+                        console.log(`[SchemaValidate] Clearing alert for plugin: ${pluginId} `);
+                        SystemStatus.update(pluginId, [
+                            { label: 'Database', value: 'Synced', severity: 'success' }
+                        ]);
+                    }
+                }
+            });
+        }
 
         return NextResponse.json({
             status: 'success',

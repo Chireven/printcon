@@ -1,0 +1,4 @@
+{
+    "providerPlugin": "@env.DB_PROVIDER_PLUGIN",
+    "providerConfig": {}
+}

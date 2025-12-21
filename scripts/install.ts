@@ -14,12 +14,16 @@ import * as os from 'os';
 import AdmZip from 'adm-zip';
 import { EventHub } from '../src/core/events';
 
+// ... imports
+
 async function main() {
     const pluginPath = process.argv[2];
+    // Check for update/force flags
+    const isUpdate = process.argv.includes('--update') || process.argv.includes('--force');
 
     if (!pluginPath) {
         console.error('Error: Please provide a path to a .plugin file.');
-        console.log('Usage: npm run plugin:install <path-to-file>');
+        console.log('Usage: npm run plugin:install <path-to-file> [--update]');
         process.exit(1);
     }
 
@@ -49,12 +53,34 @@ async function main() {
             throw new Error('Malformed plugin: manifest.json is not valid JSON.');
         }
 
-        // Basic validation of required fields
+        // Basic validation
         if (!manifest.id || !manifest.type || !manifest.version) {
             throw new Error('Malformed plugin: manifest.json is missing required fields (id, type, version).');
         }
 
         console.log(`[Install] Identified plugin: ${manifest.name || manifest.id} v${manifest.version}`);
+
+        // CHECK IF INSTALLED
+        const registryPath = path.join(process.cwd(), 'src', 'core', 'registry.json');
+        if (fs.existsSync(registryPath)) {
+            const regContent = fs.readFileSync(registryPath, 'utf8');
+            try {
+                const registry = JSON.parse(regContent);
+                const existing = registry.find((p: any) => p.id === manifest.id);
+
+                if (existing && !isUpdate) {
+                    throw new Error(`Plugin '${manifest.id}' is already installed (v${existing.version}). Use 'Update' to upgrade, or delete the plugin first.`);
+                }
+
+                if (existing && isUpdate) {
+                    console.log(`[Install] Updating plugin '${manifest.id}' from v${existing.version} to v${manifest.version}...`);
+                }
+            } catch (e: any) {
+                // If registry is malformed, we proceed (safest to assume valid install)
+                if (e.message.startsWith('Plugin')) throw e; // Re-throw our error
+            }
+        }
+
 
         // Rule #5: Environment Validation
         console.log(`[Install] Running Environment Validation... (Rule #5)`);
@@ -70,7 +96,8 @@ async function main() {
             'logging': 'logging',
             'feature': 'features',
             'printers': 'printers',
-            'databaseProvider': 'databaseProviders'
+            'databaseProvider': 'databaseProviders',
+            'storageProvider': 'storageProviders'
         };
 
         const categoryFolder = typeMap[manifest.type as string];
@@ -129,6 +156,9 @@ function updateRegistry(manifest: any) {
         }
     }
 
+    // Find existing to preserve metadata (like locked state)
+    const existing = registry.find(p => p.id === manifest.id);
+
     // Remove existing entry for the same ID if it exists
     registry = registry.filter(p => p.id !== manifest.id);
 
@@ -137,20 +167,23 @@ function updateRegistry(manifest: any) {
         'logging': 'logging',
         'feature': 'features',
         'printers': 'printers',
-        'databaseProvider': 'databaseProviders'
+        'databaseProvider': 'databaseProviders',
+        'storageProvider': 'storageProviders'
     };
 
     const categoryFolder = typeMap[manifest.type as string];
     const relativePath = `plugins/${categoryFolder}/${manifest.id}`;
 
-    // Add new entry
+    // Add new entry, preserving unknown fields from existing
     registry.push({
+        ...existing, // Spread existing first to keep flags like locked/pinned
         id: manifest.id,
         name: manifest.name,
         version: manifest.version,
         type: manifest.type,
         path: relativePath,
-        installedAt: new Date().toISOString()
+        installedAt: new Date().toISOString(),
+        active: true // Rule: Installing/Updating always activates the plugin
     });
 
     fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2));

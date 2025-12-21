@@ -38,20 +38,37 @@ async function main() {
         const pluginEntry = registry.find(p => p.id === pluginId);
 
         if (!pluginEntry) {
-            console.error(`\n[Failure] Error: Plugin ID '${pluginId}' not found in the registry.`);
-            console.log('Available plugins:');
-            registry.forEach(p => console.log(` - ${p.id} (${p.name})`));
-            process.exit(1);
+            console.warn(`\n[Info] Plugin ID '${pluginId}' not found in registry. Checking disk for orphans...`);
+
+            // Fallback: Check for orphan on disk
+            const categories = ['features', 'loggingProviders', 'logonproviders', 'printers', 'databaseProviders', 'storageProviders'];
+            let foundOrphanPath = '';
+
+            for (const cat of categories) {
+                const candidatePath = path.join(process.cwd(), 'plugins', cat, pluginId);
+                if (fs.existsSync(candidatePath)) {
+                    foundOrphanPath = candidatePath;
+                    break;
+                }
+            }
+
+            if (foundOrphanPath) {
+                console.log(`[Delete] Found orphan plugin at: ${foundOrphanPath}`);
+                console.log(`[Delete] Removing files from disk...`);
+                fs.rmSync(foundOrphanPath, { recursive: true, force: true });
+                console.log(`\n[Success] Orphan plugin '${pluginId}' deleted physically.`);
+                await EventHub.emit('system:plugin:delete', pluginId, 'success');
+                return;
+            } else {
+                console.error(`\n[Failure] Error: Plugin ID '${pluginId}' not found in registry OR on disk.`);
+                process.exit(1);
+            }
         }
 
         // Step 0: Check for Protection Locks (Rule #23)
         if (pluginEntry.locked) {
-            console.error(`\n[Access Denied] Plugin ${pluginId} is LOCKED.`);
-            console.error(`Status: Rule #23 Protection Active.`);
-            console.log(`Usage: npm run plugin:unlock ${pluginId} to proceed.`);
-
             await EventHub.emit('system:plugin:delete', pluginId, 'failure');
-            return; // Exit gracefully to hit the finally block
+            throw new Error(`Plugin ${pluginId} is LOCKED. Rule #23 Protection Active. Run unlock first.`);
         }
 
         const pluginPath = path.join(process.cwd(), pluginEntry.path);
@@ -77,6 +94,7 @@ async function main() {
         await EventHub.emit('system:plugin:delete', pluginId, 'success');
     } catch (error: any) {
         console.error(`\n[Failure] Deletion failed: ${error.message}`);
+        process.exitCode = 1;
     } finally {
         const { listPlugins } = await import('./list.js');
         await listPlugins();

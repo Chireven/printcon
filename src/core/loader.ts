@@ -1,70 +1,164 @@
 import path from 'path';
 import fs from 'fs';
-import { PluginAPI, PluginInitializer } from './types/plugin';
+import semver from 'semver';
+import { PluginAPI } from './types/plugin';
 import { EventHub } from './events';
+import { VariableService } from './variables';
+import { Logger } from './logger';
 import registryData from './registry.json';
+import packageJson from '../../package.json';
+import { InitializationTimeoutError, CoreVersionMismatchError } from './errors';
 
 interface PluginEntry {
     id: string;
     path: string;
-    entry: string;
+    entry?: string;
     type: string;
     active: boolean;
 }
 
-// Active plugin registry
-const activePlugins: PluginEntry[] = registryData.filter(p => p.active) as PluginEntry[];
-
+const activePlugins: PluginEntry[] = registryData.filter(p => p.active !== false) as unknown as PluginEntry[];
 let isLoaded = false;
+const INIT_TIMEOUT_MS = 30000; // 30s Rule #1
 
 export async function loadPlugins() {
     if (isLoaded) return;
-    console.log('[Loader] Initializing plugins...');
-
-    const api: PluginAPI = {
-        events: {
-            emit: (event, pluginId, status, payload) => {
-                EventHub.emit(event, pluginId, status, payload);
-            },
-            on: (event, callback) => {
-                EventHub.on(event, callback);
-            }
-        },
-        logger: {
-            info: (msg, pluginId) => console.log(`[INFO][${pluginId}] ${msg}`),
-            error: (msg, pluginId) => console.error(`[ERROR][${pluginId}] ${msg}`)
-        }
-    };
+    Logger.system(`Initializing plugins (Core v${packageJson.version})...`);
 
     for (const plugin of activePlugins) {
         try {
-            // Construct absolute path
-            // Construct absolute path
-            // Note: plugin.path already includes 'plugins/' prefix from registry
             const pluginDir = path.join(process.cwd(), plugin.path);
             const entryPath = path.join(pluginDir, plugin.entry || 'index.ts');
+            const manifestPath = path.join(pluginDir, 'manifest.json');
 
-            console.log(`[Loader] Loading (Runtime): ${entryPath}`);
+            Logger.info('loader', 'core', `Loading (${plugin.type}): ${plugin.id}`);
 
-            // Bypass Turbopack static analysis using eval('require')
-            // This is necessary because Next.js tries to bundle dynamic imports deterministically
+            // 1. Version Compatibility Check (Rule #2)
+            if (fs.existsSync(manifestPath)) {
+                const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+                if (manifest.requiredCoreVersion) {
+                    if (!semver.satisfies(packageJson.version, manifest.requiredCoreVersion)) {
+                        throw new CoreVersionMismatchError(plugin.id, manifest.requiredCoreVersion, packageJson.version);
+                    }
+                }
+            }
+
+            // Load Module
             // eslint-disable-next-line no-eval
-            const pluginModule = eval('require')(entryPath);
+            const createJiti = eval('require')('jiti');
+            const jiti = createJiti(__filename);
+            const pluginModule = jiti(entryPath);
 
             if (typeof pluginModule.initialize === 'function') {
-                console.log(`[Loader] Initializing plugin: ${plugin.id}`);
-                // Fix: Pass api as any to avoid runtime type checks if types aren't perfect in require
-                await (pluginModule.initialize as any)(api);
-                console.log(`[Loader] Loaded ${plugin.id}`);
+                Logger.info('loader', 'core', `Initializing plugin: ${plugin.id}`);
 
-                // Broadcast lifecycle event
-                EventHub.emit('PLUGIN_MOUNTED', 'system', 'success', { pluginId: plugin.id });
+                // Prepare API
+                const scopedApi = createScopedApi(plugin);
+
+                // 2. Watchdog Timer (Rule #1)
+                const initPromise = (async () => {
+                    // DB Sync Logic (Moved inside to be covered by timeout)
+                    await handleDatabaseSync(plugin, pluginDir);
+                    await pluginModule.initialize(scopedApi);
+                })();
+
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new InitializationTimeoutError(plugin.id, INIT_TIMEOUT_MS)), INIT_TIMEOUT_MS);
+                });
+
+                await Promise.race([initPromise, timeoutPromise]);
+
+                Logger.info('loader', 'core', `Plugin mounted: ${plugin.id}`);
+                EventHub.emit('PLUGIN_MOUNTED', plugin.id, 'success', { id: plugin.id, type: plugin.type });
             }
         } catch (e: any) {
-            console.error(`[Loader] Failed to load ${plugin.id}:`, e.message);
+            Logger.error('loader', 'core', `Failed to load ${plugin.id}`, e);
+
+            // Update Status
+            const { SystemStatus } = await import('./system-status');
+            SystemStatus.update(plugin.id, [
+                { label: 'Status', value: 'Failed to Load', severity: 'error' },
+                { label: 'Error', value: e.message, severity: 'error' }
+            ]);
+
+            EventHub.emit('PLUGIN_FAILED', plugin.id, 'failure', { message: e.message });
         }
     }
 
     isLoaded = true;
-    console.log('[Loader] Initialization complete.');
+    Logger.system('Initialization complete.');
+}
+
+// Helper: Database Sync Logic
+async function handleDatabaseSync(plugin: PluginEntry, pluginDir: string) {
+    const manifestPath = path.join(pluginDir, 'manifest.json');
+    if (fs.existsSync(manifestPath)) {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+        if (manifest.database) {
+            Logger.info('loader', 'core', `Verifying schema for ${plugin.id}...`);
+            const { DatabaseBroker } = await import('./database-broker');
+            const dbConfigModule = await import('../config/database.json');
+            const dbConfig = dbConfigModule.default || dbConfigModule;
+
+            // Ensure Broker is ready
+            await DatabaseBroker.initialize(dbConfig as any);
+
+            console.log(`[Loader] Syncing Schema for ${plugin.id}...`);
+            const inSync = await DatabaseBroker.syncSchema(manifest.database, false);
+            console.log(`[Loader] ${plugin.id} inSync: ${inSync}`);
+
+            if (!inSync) {
+                Logger.error('loader', 'core', `SCHEMA MISMATCH for ${plugin.id}.`);
+
+                // Update System Status for persistence
+                const { SystemStatus } = await import('./system-status');
+
+                console.log(`[Loader] Writing mismatch status for ${plugin.id}...`);
+                SystemStatus.update(plugin.id, [
+                    { label: 'Database', value: 'Schema Mismatch', severity: 'error' },
+                    { label: 'Action', value: 'Review Required', severity: 'warning' }
+                ]);
+                console.log(`[Loader] Status written.`);
+
+                // Use EventHub to notify UI
+                EventHub.emit('SYSTEM_ALERT', plugin.id, 'failure', {
+                    title: 'Database Schema Mismatch',
+                    message: `Schema mismatch for ${plugin.id}.`
+                });
+            } else {
+                Logger.info('loader', 'core', `Schema verified for ${plugin.id}.`);
+            }
+        }
+    }
+}
+
+// Helper: API Factory
+function createScopedApi(plugin: PluginEntry): PluginAPI {
+    return {
+        events: {
+            emit: (event, payload) => EventHub.emit(event, plugin.id, 'success', payload),
+            on: (event, callback) => EventHub.on(event, callback)
+        },
+        log: (severity, message) => {
+            if (severity === 'Error') Logger.error(plugin.type, plugin.id, message);
+            else Logger.info(plugin.type, plugin.id, message);
+        },
+        execute: async () => null, // Placeholder
+        storage: {
+            write: async (rel, buf) => (await import('./storage-broker')).StorageBroker.write(rel, buf),
+            read: async (rel) => (await import('./storage-broker')).StorageBroker.read(rel),
+            exists: async (rel) => (await import('./storage-broker')).StorageBroker.exists(rel),
+            delete: async (rel) => (await import('./storage-broker')).StorageBroker.delete(rel),
+            list: async (pre) => (await import('./storage-broker')).StorageBroker.list(pre)
+        },
+        variables: {
+            publish: (key, val) => VariableService.publish(plugin.id, key, val),
+            get: (key) => VariableService.get(key)
+        },
+        database: {
+            query: async (q, p) => (await import('./database-broker')).DatabaseBroker.query(plugin.id, q, p)
+        }
+    };
 }

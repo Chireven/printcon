@@ -1,7 +1,7 @@
 {
   "id": "printer-drivers",
   "name": "Printer Drivers",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "printers",
   "coreVersion": "^1.0.0",
   "requiredPermissions": [],
@@ -36,6 +36,21 @@
           {
             "name": "OriginalFilename",
             "type": "NVARCHAR(255)",
+            "nullable": true
+          },
+          {
+            "name": "DisplayName",
+            "type": "NVARCHAR(255)",
+            "nullable": true
+          },
+          {
+            "name": "Version",
+            "type": "NVARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "Vendor",
+            "type": "NVARCHAR(100)",
             "nullable": true
           },
           {

@@ -22,9 +22,10 @@ interface FilePickerProps {
     onSelect: (path: string) => void;
     onCancel: () => void;
     selectionType?: 'folder' | 'file';
+    allowedExtensions?: string[]; // e.g. ['inf', 'plugin']
 }
 
-export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, selectionType = 'file' }) => {
+export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, selectionType = 'file', allowedExtensions = ['inf'] }) => {
     const [currentPath, setCurrentPath] = useState<string>(''); // Empty = Root/Drives
     const [pathStack, setPathStack] = useState<string[]>([]); // History
     const [items, setItems] = useState<FileSystemItem[]>([]);
@@ -60,14 +61,37 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, sele
     }, [currentPath]);
 
     // Validation
-    const hasInf = items.some(i => i.type === 'file' && i.ext === 'inf');
+    const hasValidFile = items.some(i => i.type === 'file' && i.ext && allowedExtensions.includes(i.ext.toLowerCase()));
+
+    // Valid if folder mode AND path selected (not root) OR file mode AND current folder contains valid file
+    // Wait, typically file picker means you select the FILE, not the folder containing it?
+    // The previous logic `hasInf` implies picking a folder that contains an INF.
+    // "Select Package" usually means picking the .plugin file itself.
+    // Let's support both. If selectionType is file, user must click a file? 
+    // The current UI `onSelect(currentPath)` returns the FOLDER path.
+    // If we want to select a FILE, we need to change the UI to allow selecting a file item.
+
+    // Let's keep existing behavior for 'folder' mode.
+    // For 'file' mode, if we want to select the file, we need a "selectedItem" state.
+    // But for 'printer drivers', the requirement is "folder containing INF".
+    // For 'plugin update', the requirement is "the .plugin file".
+
+    // Let's adapt:
+    // If selectionType is 'file', we allow clicking a specific file set 'selectedFile'.
+    // If one is selected, 'Select' button is enabled.
+
+    const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
     const isValid = selectionType === 'folder'
-        ? currentPath !== '' // Valid if inside a drive/folder (not at drive root options? Actually drives are valid roots, but empty string is root-list)
-        : hasInf;
+        ? currentPath !== ''
+        : !!selectedFile;
+
+    // Reset selection on nav
+    useEffect(() => { setSelectedFile(null); }, [currentPath]);
 
     // For Select Folder button: If we are at root (Drives list), we probably can't select "Root". User must select a drive.
     // If currentPath is empty, we are viewing list of drives. Can't select "System".
-    const canSelect = isValid && currentPath !== '';
+    const canSelect = isValid && (selectionType === 'folder' ? currentPath !== '' : true);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -79,23 +103,25 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, sele
 
 
     const handleNavigate = (item: FileSystemItem) => {
-        if (item.type !== 'folder') return;
-        setPathStack([...pathStack, currentPath]);
-        setCurrentPath(item.path);
+        if (item.type === 'folder') {
+            setPathStack([...pathStack, currentPath]);
+            setCurrentPath(item.path);
+        } else {
+            // It's a file
+            if (selectionType === 'file' && item.ext && allowedExtensions.includes(item.ext.toLowerCase())) {
+                setSelectedFile(item.path);
+            }
+        }
     };
 
     const handleUp = () => {
         if (currentPath === '') return;
-
-        // Complex logic: Going up from "D:\" should go to "" (Drive List).
-        // Or we use pathStack history.
         if (pathStack.length > 0) {
             const prev = pathStack[pathStack.length - 1];
             setPathStack(pathStack.slice(0, -1));
             setCurrentPath(prev);
         } else {
-            // Fallback
-            setCurrentPath('');
+            setCurrentPath(''); // Root
         }
     };
 
@@ -138,44 +164,46 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, sele
                             </div>
                         )}
 
-                        {items.map((item, idx) => (
-                            <div
-                                key={idx}
-                                onClick={() => handleNavigate(item)}
-                                className={`
-                                    flex items-center gap-3 p-3 rounded-lg transition-colors
-                                    ${item.type === 'folder' ? 'cursor-pointer hover:bg-slate-800 text-slate-200 hover:text-white' : 'text-slate-500 cursor-default'}
-                                `}
-                            >
-                                {item.type === 'folder' ? (
-                                    currentPath === '' ? <HardDrive className="w-5 h-5 text-sky-400" /> : <Folder className="w-5 h-5 text-sky-500" />
-                                ) : item.ext === 'inf' ? (
-                                    <FileCode className="w-5 h-5 text-emerald-500" />
-                                ) : (
-                                    <File className="w-5 h-5" />
-                                )}
-                                <span className="text-sm">{item.name}</span>
-                            </div>
-                        ))}
+                        {items.map((item, idx) => {
+                            const isSelected = selectedFile === item.path;
+                            const isSelectable = selectionType === 'file' && item.type === 'file' && item.ext && allowedExtensions.includes(item.ext.toLowerCase());
+
+                            return (
+                                <div
+                                    key={idx}
+                                    onClick={() => handleNavigate(item)}
+                                    className={`
+                                        flex items-center gap-3 p-3 rounded-lg transition-colors border border-transparent
+                                        ${item.type === 'folder'
+                                            ? 'cursor-pointer hover:bg-slate-800 text-slate-200 hover:text-white'
+                                            : isSelectable
+                                                ? isSelected
+                                                    ? 'bg-sky-500/20 border-sky-500/50 text-sky-200'
+                                                    : 'cursor-pointer hover:bg-slate-800 text-slate-300'
+                                                : 'text-slate-600 cursor-default opacity-50'
+                                        }
+                                    `}
+                                >
+                                    {item.type === 'folder' ? (
+                                        currentPath === '' ? <HardDrive className="w-5 h-5 text-sky-400" /> : <Folder className="w-5 h-5 text-sky-500" />
+                                    ) : (
+                                        <File className={`w-5 h-5 ${isSelectable ? 'text-emerald-400' : 'text-slate-600'}`} />
+                                    )}
+                                    <span className="text-sm">{item.name}</span>
+                                </div>
+                            );
+                        })}
                     </>
                 )}
             </div>
 
             {/* Footer */}
             <div className="bg-slate-800 p-4 border-t border-slate-700 flex justify-between items-center gap-4">
-                <div className="text-xs text-slate-400 flex items-center gap-2">
-                    {selectionType === 'file' ? (
-                        hasInf ? (
-                            <span className="text-emerald-400 flex items-center gap-1">
-                                <Check className="w-3 H-3" /> Valid Driver Found (.inf)
-                            </span>
-                        ) : (
-                            <span className="text-amber-500/80">No .inf file</span>
-                        )
+                <div className="text-xs text-slate-400 flex items-center gap-2 truncate max-w-[50%]">
+                    {selectedFile ? (
+                        <span className="text-emerald-400 font-mono truncate">{selectedFile}</span>
                     ) : (
-                        <span className="text-sky-400 flex items-center gap-1">
-                            {currentPath || 'Select a Drive'}
-                        </span>
+                        <span>{selectionType === 'folder' ? 'Select a folder' : 'Select a file'}</span>
                     )}
                 </div>
 
@@ -187,11 +215,11 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, sele
                         Cancel
                     </button>
                     <button
-                        onClick={() => onSelect(currentPath)}
+                        onClick={() => onSelect(selectionType === 'folder' ? currentPath : selectedFile!)}
                         disabled={!canSelect}
                         className="px-6 py-2 rounded-lg bg-sky-500 text-slate-900 text-xs font-bold hover:bg-sky-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-sky-500/20"
                     >
-                        {selectionType === 'folder' ? 'Select Folder' : 'Select Package'}
+                        {selectionType === 'folder' ? 'Select Folder' : 'Select File'}
                     </button>
                 </div>
             </div>

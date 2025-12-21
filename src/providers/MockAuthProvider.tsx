@@ -24,11 +24,26 @@ const INITIAL_USER: User = {
     name: 'Joe Demo',
     email: 'joe@printcon.enterprise',
     role: 'viewer', // Start as restricted
-    permissions: ['read:drivers', 'read:printers', 'debugmode.activate']
+    permissions: ['drivers:read', 'read:printers', 'debugmode.activate', 'plugin.pack', 'plugin.delete', 'plugin.update', 'plugin.lock']
 };
 
 export function MockAuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User>(INITIAL_USER);
+
+    // Persistence: Load from screen storage on mount
+    React.useEffect(() => {
+        const stored = localStorage.getItem('printcon_debug_permissions');
+        if (stored) {
+            try {
+                const parsedPerms = JSON.parse(stored);
+                if (Array.isArray(parsedPerms)) {
+                    setUser(prev => ({ ...prev, permissions: parsedPerms }));
+                }
+            } catch (e) {
+                console.error('Failed to load permissions', e);
+            }
+        }
+    }, []);
 
     const hasPermission = (permission: string) => {
         return user.permissions.includes(permission);
@@ -41,10 +56,13 @@ export function MockAuthProvider({ children }: { children: React.ReactNode }) {
                 ? prev.permissions.filter(p => p !== permission)
                 : [...prev.permissions, permission];
 
-            // Notify UI of change (Requirement: Rights Manager Refresh)
+            // Notify UI of change
             toast.info(`Permission Updated`, {
                 description: `${permission} is now ${!has ? 'GRANTED' : 'REVOKED'}`
             });
+
+            // Persistence: Save to local storage
+            localStorage.setItem('printcon_debug_permissions', JSON.stringify(newPerms));
 
             return { ...prev, permissions: newPerms };
         });

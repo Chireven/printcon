@@ -321,6 +321,7 @@ export class PDPackageBuilder {
             driverMetadata: {
                 displayName: metadata.displayName,
                 version: metadata.version,
+                vendor: metadata.manufacturer,
                 architecture: metadata.architecture,
                 supportedOS: ['Windows 10', 'Windows 11', 'Windows Server 2016', 'Windows Server 2019', 'Windows Server 2022'],
                 driverClass: 'v4',

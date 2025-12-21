@@ -10,6 +10,18 @@
  * Keys = Parameter Names (e.g. '@id', 'firstName')
  * Values = Parameter Values
  */
+export interface DatabaseTable {
+    name: string;
+    columns: Array<{
+        name: string;
+        type: string;
+        nullable?: boolean;
+        primaryKey?: boolean;
+        identity?: boolean;
+        defaultValue?: string;
+    }>;
+}
+
 export interface ISqlParams {
     [key: string]: any;
 }
@@ -39,4 +51,29 @@ export interface IDatabaseProvider {
      * @returns Promise resolving to an array of result objects of type T.
      */
     query<T>(sql: string, params?: ISqlParams): Promise<T[]>;
+
+    /**
+     * Synchronizes the database schema with the plugin manifest.
+     * @param requirements The database requirements from the manifest.
+     * @param force If true, applies changes. If false, only validates.
+     * @returns Promise resolving to a boolean indicating if the schema is in sync (true = identical).
+     */
+    syncSchema(requirements: any, force?: boolean): Promise<boolean>;
+
+    /**
+     * Verifies if the configured database exists on the server.
+     * @returns Promise resolving to true if exists, false otherwise.
+     */
+    checkDatabaseExists(): Promise<boolean>;
+
+    /**
+     * Retrieves the list of all schemas in the database.
+     */
+    getSchemas(): Promise<string[]>;
+
+    /**
+     * Retrieves the full schema (tables and columns) of the database.
+     * Used for validation against expected schemas.
+     */
+    getCurrentSchema(): Promise<any[]>;
 }

@@ -110,7 +110,7 @@ export default function AddDriverModal({ isOpen, onClose, onAdd }: AddDriverModa
         }
 
         setIsUploading(true);
-        const toastId = toast.loading('Building .pd package from INF folder...');
+        const toastId = toast.loading(`Building driver package for ${name}...`);
 
         try {
             // Build and upload .pd package from INF folder

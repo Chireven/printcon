@@ -31,6 +31,8 @@ export async function POST(req: Request) {
             username
         );
 
+        console.log(`[API] Saved package ${result.id} to database. Manifest:`, manifest.driverMetadata);
+
         // 3. Return success with manifest metadata
         return NextResponse.json({
             status: 'success',

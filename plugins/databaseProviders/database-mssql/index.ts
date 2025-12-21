@@ -1,219 +1,251 @@
-/**
- * Plugin: Database Mssql
- */
 import sql from 'mssql';
-import { IDatabaseProvider, ISqlParams } from '../../../src/lib/interfaces/database';
+import { IDatabaseProvider, DatabaseTable } from '../../../src/lib/interfaces/database';
+import { Logger } from '../../../src/core/logger';
 
 export class MssqlProvider implements IDatabaseProvider {
-  // Required by Interface
-  public providerType = 'mssql';
+    providerType = 'mssql';
+    private pool: sql.ConnectionPool | null = null;
+    private config: sql.config | null = null;
 
-  // Instance Config
-  private config: sql.config | null = null;
+    constructor(config?: any) {
+        this.config = config || null;
+    }
 
-  // Connection State (Instance-scoped now, allowing independent connections for testing)
-  private pool: sql.ConnectionPool | null = null;
-  private isConnecting: boolean = false;
+    async initialize(config: any): Promise<void> {
+        this.config = config;
+    }
 
-  constructor(config?: any) {
-    if (config) {
-      this.config = {
-        user: config.username || process.env.DB_USER,
-        password: config.password || process.env.DB_PASSWORD,
-        server: config.server || process.env.DB_SERVER || 'localhost',
-        database: config.database || process.env.DB_NAME,
-        options: {
-          encrypt: true,
-          trustServerCertificate: true,
-          instanceName: config.instance || process.env.DB_INSTANCE
+    async connect(): Promise<void> {
+        if (this.pool?.connected) return;
+
+        try {
+            const effectiveConfig = this.getEffectiveConfig();
+            Logger.info('databaseProvider', 'mssql', `Connecting to ${effectiveConfig.server} (${effectiveConfig.database})`);
+            this.pool = await new sql.ConnectionPool(effectiveConfig).connect();
+        } catch (err: any) {
+            Logger.error('databaseProvider', 'mssql', 'Connection failed', err);
+            throw err;
         }
-      };
-    }
-  }
-
-  /**
-   * Connects to the SQL Server.
-   */
-  async connect(): Promise<void> {
-    if (this.pool && this.pool.connected) {
-      return;
     }
 
-    if (this.isConnecting) {
-      while (this.isConnecting) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      if (this.pool && this.pool.connected) return;
-    }
+    async query<T = any>(sql: string, params?: any): Promise<T[]> {
+        await this.connect();
+        const request = this.pool!.request();
 
-    this.isConnecting = true;
-
-    try {
-      // Priority: Instance Config -> Process Env
-      const config: sql.config = this.config || {
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        server: process.env.DB_SERVER || 'localhost',
-        database: process.env.DB_NAME,
-        options: {
-          encrypt: true,
-          trustServerCertificate: true,
-          instanceName: process.env.DB_INSTANCE
+        if (params) {
+            for (const key in params) {
+                request.input(key, params[key]);
+            }
         }
-      };
 
-      // Sanitize Instance
-      if (config.options && 'instanceName' in config.options && config.options.instanceName === '') {
-        delete config.options.instanceName;
-      }
-
-      console.log('[MssqlProvider] Connecting Attempt:', {
-        server: config.server,
-        instance: config.options?.instanceName,
-        database: config.database,
-        user: config.user,
-        fromEnv: !this.config
-      });
-
-      // Basic validation
-      if (!config.user || !config.password || !config.server || !config.database) {
-        throw new Error('Connection failed: Missing database credentials in environment or configuration.');
-      }
-
-      this.pool = await sql.connect(config);
-      console.log('MSSQL Connected successfully.');
-    } catch (err: any) {
-      console.error('MSSQL Connection Failed:', err.message);
-      throw err;
-    } finally {
-      this.isConnecting = false;
+        const result = await request.query(sql);
+        return result.recordset as T[];
     }
-  }
 
-  /**
-   * Executes a query against the SQL Server.
-   */
-  async query<T>(query: string, params?: ISqlParams): Promise<T[]> {
-    try {
-      await this.connect(); // Ensure connection
-
-      if (!this.pool) {
-        throw new Error('Database connection pool is not initialized.');
-      }
-
-      const request = this.pool.request();
-
-      // Secure Parameter Injection
-      if (params) {
-        for (const [key, value] of Object.entries(params)) {
-          request.input(key, value);
+    async disconnect(): Promise<void> {
+        if (this.pool) {
+            await this.pool.close();
+            this.pool = null;
         }
-      }
-
-      const result = await request.query<T>(query);
-      return result.recordset;
-    } catch (err: any) {
-      console.error(`MSSQL Query Error: ${err.message}`, { query, params });
-      throw err;
     }
-  }
 
-  getScopedConnection(schema: string): this {
-    return this;
-  }
-
-  /**
-   * Checks if the configured database exists.
-   * Connects to 'master' to query sys.databases.
-   */
-  async checkDatabaseExists(): Promise<boolean> {
-    let masterPool: sql.ConnectionPool | null = null;
-    try {
-      // Create config for Master
-      const masterConfig = { ...this.getEffectiveConfig() };
-      masterConfig.database = 'master';
-
-      masterPool = await new sql.ConnectionPool(masterConfig).connect();
-      const dbName = this.getEffectiveConfig().database;
-
-      const result = await masterPool.request()
-        .input('name', dbName)
-        .query('SELECT name FROM sys.databases WHERE name = @name');
-
-      return result.recordset.length > 0;
-    } catch (err) {
-      console.error('Check DB Exists Failed:', err);
-      throw err;
-    } finally {
-      if (masterPool) await masterPool.close();
+    /**
+     * Helper to list schemas (for debug/validation)
+     */
+    async listSchemas(): Promise<string[]> {
+        await this.connect();
+        const result = await this.query<{ SCHEMA_NAME: string }>(
+            "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME NOT IN ('dbo', 'guest', 'sys', 'INFORMATION_SCHEMA')"
+        );
+        return result.map(r => r.SCHEMA_NAME);
     }
-  }
 
-  /**
-   * Creates the configured database.
-   */
-  async createDatabase(): Promise<void> {
-    let masterPool: sql.ConnectionPool | null = null;
-    try {
-      const masterConfig = { ...this.getEffectiveConfig() };
-      masterConfig.database = 'master';
+    async checkDatabaseExists(): Promise<boolean> {
+        try {
+            // Cannot connect to the specific db if checking if it exists, 
+            // so we might fail if we try to connect to a non-existent DB in connect().
+            // However, connect() uses the config.database.
+            // If the DB doesn't exist, connect() will throw.
+            // Strategy: 
+            // 1. Try to connect. If valid, it exists.
+            // 2. If it fails with specific error (db not found), return false.
+            // 3. Alternatively, connect to 'master' and query.
 
-      masterPool = await new sql.ConnectionPool(masterConfig).connect();
-      const dbName = this.getEffectiveConfig().database;
+            // Given existing structure, let's try connecting to master.
+            const masterConfig = { ...this.getEffectiveConfig(), database: 'master' };
+            const pool = await new sql.ConnectionPool(masterConfig).connect();
 
-      // Simple create (Sanitize dbName? MSSQL identifiers are strict)
-      // Using bracket quoting for safety [Name]
-      await masterPool.request().query(`CREATE DATABASE [${dbName}]`);
-    } catch (err) {
-      console.error('Create DB Failed:', err);
-      throw err;
-    } finally {
-      if (masterPool) await masterPool.close();
+            const dbName = this.getEffectiveConfig().database;
+            const result = await pool.request()
+                .input('name', dbName)
+                .query('SELECT name FROM sys.databases WHERE name = @name');
+
+            await pool.close();
+            return result.recordset.length > 0;
+        } catch (err) {
+            Logger.error('databaseProvider', 'mssql', 'Failed to check database existence', err);
+            // If we can't connect to master, we can't verify. Throwing is appropriate.
+            throw err;
+        }
     }
-  }
 
-  /**
-   * Retrieves current schema (Tables and Columns).
-   */
-  async getCurrentSchema(): Promise<any[]> {
-    // Query Information Schema
-    const query = `
-            SELECT
+    async getSchemas(): Promise<string[]> {
+        await this.connect();
+        const result = await this.query<{ SCHEMA_NAME: string }>(
+            "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME NOT IN ('dbo', 'guest', 'sys', 'INFORMATION_SCHEMA')"
+        );
+        return result.map(r => r.SCHEMA_NAME);
+    }
+
+    async getCurrentSchema(): Promise<any[]> {
+        await this.connect();
+        const sql = `
+            SELECT 
                 t.TABLE_SCHEMA as SchemaName,
                 t.TABLE_NAME as TableName,
                 c.COLUMN_NAME as ColumnName,
                 c.DATA_TYPE as DataType,
                 c.IS_NULLABLE as IsNullable
             FROM INFORMATION_SCHEMA.TABLES t
-            JOIN INFORMATION_SCHEMA.COLUMNS c ON t.TABLE_NAME = c.TABLE_NAME AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+            JOIN INFORMATION_SCHEMA.COLUMNS c 
+                ON t.TABLE_SCHEMA = c.TABLE_SCHEMA 
+                AND t.TABLE_NAME = c.TABLE_NAME
             WHERE t.TABLE_TYPE = 'BASE TABLE'
         `;
-    return this.query(query);
-  }
+        return this.query(sql);
+    }
 
-  /**
-   * Retrieves list of existing schemas.
-   */
-  async getSchemas(): Promise<string[]> {
-    const result = await this.query<{ SCHEMA_NAME: string }>(
-      "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME NOT IN ('dbo', 'guest', 'sys', 'INFORMATION_SCHEMA')"
-    );
-    return result.map(r => r.SCHEMA_NAME);
-  }
+    async syncSchema(requirements: any, force: boolean = false): Promise<boolean> {
+        try {
+            await this.connect();
 
-  /**
-   * Helper to resolve config priority without side effects
-   */
-  private getEffectiveConfig(): sql.config {
-    return this.config || {
-      user: process.env.DB_USER!,
-      password: process.env.DB_PASSWORD!,
-      server: process.env.DB_SERVER || 'localhost',
-      database: process.env.DB_NAME!,
-      options: {
-        encrypt: true,
-        trustServerCertificate: true
-      }
-    };
-  }
+            const { schema, tables } = requirements;
+            let inSync = true;
+
+            // 1. Check/Create Schema
+            const schemaExists = await this.query(`SELECT * FROM sys.schemas WHERE name = @name`, { name: schema });
+            if (schemaExists.length === 0) {
+                if (force) {
+                    Logger.info('databaseProvider', 'mssql', `Creating schema: ${schema}`);
+                    await this.query(`EXEC('CREATE SCHEMA [${schema}]')`);
+                } else {
+                    Logger.warn('databaseProvider', 'mssql', `Schema missing: ${schema}`);
+                    inSync = false;
+                }
+            }
+
+            // 2. Check/Create Tables and Columns
+            for (const table of tables) {
+                const tableName = `[${schema}].[${table.name}]`;
+                const checkTable = `SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = @schema AND TABLE_NAME = @table`;
+
+                const tableExists = await this.query(checkTable, { schema: schema, table: table.name });
+
+                if (tableExists.length === 0) {
+                    // Table doesn't exist - Create it
+                    if (force) {
+                        Logger.info('databaseProvider', 'mssql', `Creating table: ${tableName}`);
+
+                        const columns = table.columns.map((col: any) => {
+                            let def = `[${col.name}] ${col.type}`;
+                            if (col.identity) def += ' IDENTITY(1,1)';
+                            if (col.primaryKey) def += ' PRIMARY KEY';
+                            if (col.nullable === false) def += ' NOT NULL';
+                            if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
+                            return def;
+                        }).join(', ');
+
+                        await this.query(`CREATE TABLE ${tableName} (${columns})`);
+                    } else {
+                        Logger.warn('databaseProvider', 'mssql', `Table missing: ${tableName}`);
+                        inSync = false;
+                    }
+                } else {
+                    // Table exists - Check for missing columns (Schema Evolution)
+                    for (const col of table.columns) {
+                        const checkColumn = `
+              SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+              WHERE TABLE_SCHEMA = @schema 
+              AND TABLE_NAME = @table 
+              AND COLUMN_NAME = @column
+            `;
+
+                        const colExists = await this.query(checkColumn, {
+                            schema: schema,
+                            table: table.name,
+                            column: col.name
+                        });
+
+                        if (colExists.length === 0) {
+                            if (force) {
+                                Logger.info('databaseProvider', 'mssql', `Adding missing column: ${tableName}.${col.name}`);
+                                let def = `[${col.name}] ${col.type}`;
+                                if (col.nullable === false) def += ' NOT NULL';
+                                if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
+
+                                await this.query(`ALTER TABLE ${tableName} ADD ${def}`);
+                            } else {
+                                Logger.warn('databaseProvider', 'mssql', `Column missing: ${tableName}.${col.name}`);
+                                inSync = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return inSync;
+        } catch (err: any) {
+            Logger.error('databaseProvider', 'mssql', 'Schema Sync Failed', err);
+            throw err;
+        }
+    }
+
+    private getEffectiveConfig(): sql.config {
+        // Priority 1: Config passed via constructor/initialize
+        // Priority 2: Process Env Variables
+
+        const raw = this.config || {};
+        const isWindows = raw.logonType === 'windows';
+
+        let server = raw.server || process.env.DB_SERVER || 'localhost';
+
+        // Handle Instance Name
+        if (raw.instance && raw.instance.trim() !== '') {
+            // If server doesn't already have instance syntax (server\instance)
+            if (!server.includes('\\')) {
+                server = `${server}\\${raw.instance}`;
+            }
+        } else if (process.env.DB_INSTANCE) {
+            if (!server.includes('\\')) {
+                server = `${server}\\${process.env.DB_INSTANCE}`;
+            }
+        }
+
+        const config: sql.config = {
+            server: server,
+            database: raw.database || process.env.DB_NAME!,
+            options: {
+                encrypt: true, // Azure required
+                trustServerCertificate: true // Self-signed certs
+            }
+        };
+
+        if (isWindows) {
+            // Windows Auth (requires driver support or running as user)
+            // msg-nodesqlv8 is usually required for true Integrated Security on Windows
+            // but for 'tedious' (default), we might need domain settings or just ignore user/pass.
+            // CAUTION: 'tedious' driver (default in node-mssql) does NOT support SSPI (Windows Auth) natively on non-Windows or without extensive setup.
+            // However, usually 'trustedConnection: true' is the key.
+            (config as any).options.trustedConnection = true;
+        } else {
+            // SQL Auth
+            config.user = raw.username || process.env.DB_USER!;
+            config.password = raw.password || process.env.DB_PASSWORD!;
+        }
+
+        return config;
+    }
 }
+
+// Factory function accepting config
+export const createMssqlProvider = (config?: any) => new MssqlProvider(config);

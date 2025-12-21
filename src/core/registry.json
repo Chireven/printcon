@@ -2,30 +2,46 @@
   {
     "id": "printer-manager",
     "name": "Printer Manager",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "type": "feature",
     "path": "plugins/features/printer-manager",
-    "installedAt": "2025-12-18T02:33:29.239Z",
-    "recovered": true,
-    "locked": true,
-    "active": true
+    "active": true,
+    "locked": true
   },
   {
     "id": "printer-drivers",
     "name": "Printer Drivers",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "type": "printers",
     "path": "plugins/printers/printer-drivers",
-    "installedAt": "2025-12-18T23:19:23.778Z",
-    "locked": true,
-    "active": true
+    "active": true,
+    "locked": true
   },
   {
     "id": "database-mssql",
     "name": "Database Mssql",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "type": "databaseProvider",
     "path": "plugins/databaseProviders/database-mssql",
-    "installedAt": "2025-12-19T23:24:45.970Z"
+    "active": true,
+    "locked": true
+  },
+  {
+    "id": "storage-localdisk",
+    "name": "Storage Localdisk",
+    "version": "1.0.1",
+    "type": "storageProvider",
+    "path": "plugins/storageProviders/storage-localdisk",
+    "installedAt": "2025-12-21T02:20:43.379Z",
+    "locked": true
+  },
+  {
+    "id": "test-isolation",
+    "name": "Isolation Tester",
+    "version": "1.0.0",
+    "type": "feature",
+    "path": "plugins/features/test-isolation",
+    "installedAt": "2025-12-21T05:00:45.580Z",
+    "active": true
   }
 ]

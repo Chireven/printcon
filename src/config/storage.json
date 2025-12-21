@@ -1,0 +1,6 @@
+{
+    "providerPlugin": "storage-localdisk",
+    "providerConfig": {
+        "repositoryPath": "@printer-drivers.DriverRepository"
+    }
+}

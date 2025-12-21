@@ -1,0 +1,11 @@
+{
+  "id": "storage-localdisk",
+  "name": "Storage Localdisk",
+  "version": "1.0.1",
+  "type": "storageProvider",
+  "coreVersion": "^1.0.0",
+  "requiredPermissions": [],
+  "entryPoints": {
+    "main": "index.ts"
+  }
+}

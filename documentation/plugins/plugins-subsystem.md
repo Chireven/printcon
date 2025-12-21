@@ -10,13 +10,21 @@ The PrintCon architecture is **Modular-First** and **Contract-Based**. The core 
 - **Passive Nature**: Plugins do not "run" the system; they are initialized by the Core and respond to state changes or user interactions via defined interfaces.
 - **Contract Enforcement**: All interactions are governed by TypeScript interfaces (defined in `@core/types`) ensuring that as long as the contract is honored, the system remains stable.
 
-## 2. The Toolchain (CLI)
+## 2. Dynamic Configuration (Variables)
+
+To decouple the Core from plugin-specific paths and settings, the system uses a **Variable Resolution Service**.
+
+- **Scoped Publishing**: Plugins can publish values (like `DriverRepository` path) using `api.variables.publish(key, value)`. The system automatically scopes this to `pluginId.key` to prevent collisions.
+- **Async Resolution**: Core services can `await` a variable using `VariableService.get('pluginId.key')`, ensuring startup resilience even if the plugin loads late.
+- **Hot Reloading**: Publishers can update variables at runtime, triggering `system:variable:updated` events that consumers can react to.
+
+## 3. The Toolchain (CLI)
 
 The lifecycle of a plugin is managed through a suite of standardized CLI commands:
 
 - **`new` (Scaffolding)**: Generates a boilerplate plugin structure, including a compliant `manifest.json` and a passive `index.ts` entry point. (Rule #2, #6).
 - **`pack` (Distribution)**: Bundles the plugin into a standard ZIP archive with a `.plugin` extension. It automatically names the file `[plugin-id]-[version].plugin` (Rule #15) and verifies manifest integrity (Rule #2).
-- **`install` (Deployment)**: Handles extraction, environment validation (Rule #5), and registration. It routes plugins to their categorized directories (`features`, `logging`, `logonproviders`) and updates the central `registry.json`.
+- **`install` (Deployment)**: Handles extraction, environment validation (Rule #5), and registration. It routes plugins to their categorized directories (`features`, `loggingProviders`, `logonproviders`) and updates the central `registry.json`.
 - **`delete` (Cleanup)**: Safely removes the plugin folder from disk and purges its entry from the central registry to prevent orphans.
 
 ## 3. The Identity System (Manifest)
@@ -26,7 +34,7 @@ The `manifest.json` is the "Identity Card" of every plugin (Rule #2). If a featu
 ### Required Fields:
 - `id`: Unique kebab-case identifier.
 - `version`: SemVer string.
-- `type`: `feature`, `logging`, `logonprovider`, or `printers`.
+- `type`: `feature`, `loggingProvider`, `logonprovider`, `printers`, `databaseProvider`, or `storageProvider`.
 - `coreVersion`: Compatibility range (Rule #7).
 - `entryPoints`: Paths to the UI and Main logic files.
 
@@ -44,14 +52,32 @@ The system uses a **Standardized Event Hub** for real-time reactivity (Rule #18)
 - **Server-Side Subscriptions**: Plugins can subscribe to events (`PluginAPI.events.on`) during server initialization, enabling a full **Request-Response** pattern without new API routes.
 - **Hybrid Approach**: Allows the Core to remain simple while enabling plugins to "invent" their own language.
 
-## 6. Server-Side Plugin Loader
+## 5. Server-Side Plugin Loader
 
 To adhere to the "Passive Plugin" rule while supporting event listeners, the system uses a **Singleton Plugin Loader**:
 - **Initialization**: Powered by Next.js `instrumentation.ts` hook.
 - **Lifecycle**: On server start, the loader reads `registry.json` and invokes the `initialize(api)` function of every active plugin.
 - **Isolation**: Plugins remain in their own directories and only interact with the system via the injected `PluginAPI`.
 
-## 7. Notification Schema
+## 7. Storage Broker System
+
+The system implements a **Core Storage Broker** to abstract file operations and support swappable backend providers.
+
+- **Dynamic Routing**: The broker routes storage requests (write, read, exists, etc.) from plugins to the configured storage provider.
+- **Registry-Based Loading**: Storage providers are loaded dynamically from the plugin registry. No Core code changes are required to add new providers (e.g., S3, Azure).
+- **Interface Contract**: All providers must implement the `IStorageProvider` interface defined in `@core/types/storage`.
+- **Usage**: Plugins access storage via `PluginAPI.storage` methods, ensuring they remain agnostic to the underlying storage mechanism.
+
+## 8. Database Broker System
+
+Similar to storage, database access is brokered to prevent direct dependency on specific drivers.
+
+- **Broker**: `src/core/database-broker.ts` manages the connection.
+- **Provider**: Loaded dynamically (e.g., `database-mssql`).
+- **Access**: Plugins must use `api.database.query()` and never import database drivers directly.
+- **Configuration**: Managed via `src/config/database.json`.
+
+## 9. Notification Schema
 
 To ensure visual consistency across the management console, all system events are mapped to standardized UI notifications (Toasts) via **Sonner**.
 
@@ -65,7 +91,7 @@ To ensure visual consistency across the management console, all system events ar
 > [!IMPORTANT]
 > **The "Super Toast" Override**: Regardless of the event category, if the event payload contains `status: 'failure'`, the UI MUST use `toast.error` to alert the administrator immediately (Rule #4).
 
-## 7. Protection Locks & Live Challenges (Rule #23)
+## 8. Protection Locks & Live Challenges (Rule #23)
 
 To prevent accidental deletion of critical infrastructure plugins, the system implements a **Physical Challenge** protocol.
 
@@ -76,14 +102,14 @@ To prevent accidental deletion of critical infrastructure plugins, the system im
     - The PIN is broadcast via the **WebSocket Event Hub** but never stored on disk.
     - The Admin must read the PIN from the **Debug Console** in the browser and enter it back into the terminal.
 
-## 8. JIT Event Architecture
+## 9. JIT Event Architecture
 
 To simplify the development environment, the system utilizes a **Just-in-Time (JIT)** event server.
 
 - **Self-Hosting**: CLI scripts automatically check if port 8080 is available and host a temporary WebSocket server if necessary.
 - **Persistent Listeners**: The Browser UI aggressively attempts to reconnect to `localhost:8080` every 2 seconds, ensuring zero-configuration event visibility.
 
-## 5. Development Mode (Mocking)
+## 10. Development Mode (Mocking)
 
 Following **Rule #10 (Mock-First)**, the system is designed to be functional even without a live Windows environment.
 
@@ -91,9 +117,7 @@ Following **Rule #10 (Mock-First)**, the system is designed to be functional eve
 - **Data Mocking**: In `development` mode, the `execution.ts` service returns predefined mock objects (e.g., fake printers, ports, or drivers) instead of calling expensive or intrusive OS scripts.
 - **Testing Logic**: This allows UI developers to build and test complex workflows using only the mock data, ensuring high velocity and safety.
 
----
-
-## 9. Configuration UI
+## 11. Configuration UI
 
 To allow plugins to expose settings to the system administrator, the architecture supports a dedicated **System Settings** view.
 

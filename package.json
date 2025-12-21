@@ -23,14 +23,18 @@
         "lucide-react": "^0.561.0",
         "mssql": "^12.2.0",
         "next": "^16.0.10",
+        "node-cron": "^4.2.1",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
+        "semver": "^7.7.3",
         "sonner": "^1.4.0"
     },
     "devDependencies": {
         "@types/node": "^20.11.24",
+        "@types/node-cron": "^3.0.11",
         "@types/react": "^18.2.60",
         "@types/react-dom": "^18.2.19",
+        "@types/semver": "^7.7.1",
         "@vitejs/plugin-react": "^4.2.1",
         "adm-zip": "^0.5.10",
         "autoprefixer": "^10.4.18",

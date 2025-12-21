@@ -1,0 +1,35 @@
+{
+    "id": "test-isolation",
+    "version": "1.0.0",
+    "name": "Isolation Tester",
+    "description": "Tests database security restrictions",
+    "type": "feature",
+    "active": true,
+    "requiredCoreVersion": "1.0.0",
+    "database": {
+        "schema": "test_isolation",
+        "tables": [
+            {
+                "name": "RestrictedData",
+                "columns": [
+                    {
+                        "name": "Id",
+                        "type": "int",
+                        "identity": true,
+                        "primaryKey": true
+                    },
+                    {
+                        "name": "SecretValue",
+                        "type": "nvarchar(255)",
+                        "nullable": false
+                    },
+                    {
+                        "name": "CreatedAt",
+                        "type": "datetime2",
+                        "defaultValue": "GETDATE()"
+                    }
+                ]
+            }
+        ]
+    }
+}

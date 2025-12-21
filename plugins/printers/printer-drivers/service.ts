@@ -1,8 +1,9 @@
-import { db } from '../../../src/lib/db-manager';
+
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import AdmZip from 'adm-zip';
+import type { PluginAPI } from '../../../src/core/types/plugin';
 
 /**
  * .pd Package Manifest Schema Interfaces
@@ -17,6 +18,7 @@ interface PackageInfo {
 interface DriverMetadata {
     displayName: string;
     version: string;
+    vendor: string;
     architecture: string[];
     supportedOS: string[];
     driverClass: string;
@@ -40,33 +42,57 @@ export interface PDManifestSchema {
  * Handles driver package storage, deduplication, and model support management.
  */
 export class PrinterService {
-    private static STORAGE_PATH: string | null = null;
+    private static api: PluginAPI | null = null;
 
     /**
-     * Lazy-loads the storage path from plugin configuration.
-     * Falls back to 'C:\\Drivers' if not configured.
+     * Initializes the service with PluginAPI.
+     * Called during plugin initialization.
+     * This is optional - service can work without it by accessing StorageBroker directly.
      */
-    private static async getStoragePath(): Promise<string> {
-        if (this.STORAGE_PATH) {
-            return this.STORAGE_PATH;
+    static initialize(api: PluginAPI): void {
+        this.api = api;
+    }
+
+    /**
+     * Gets storage interface - either from PluginAPI or directly from StorageBroker.
+     * This allows the service to work in both plugin and API route contexts.
+     */
+    private static async getStorage() {
+        if (this.api) {
+            // Use PluginAPI if available (plugin context)
+            return this.api.storage;
+        } else {
+            // Fall back to direct StorageBroker access (API route context)
+            const { StorageBroker } = await import('../../../src/core/storage-broker');
+            const storageConfig = await import('../../../src/config/storage.json'); // Re-use core config
+
+            // Ensure initialized (safe now that it's idempotent)
+            await StorageBroker.initialize(storageConfig as any);
+
+            return {
+                write: (path: string, buffer: Buffer) => StorageBroker.write(path, buffer),
+                read: (path: string) => StorageBroker.read(path),
+                exists: (path: string) => StorageBroker.exists(path),
+                delete: (path: string) => StorageBroker.delete(path),
+                list: (prefix: string) => StorageBroker.list(prefix)
+            };
         }
+    }
 
-        try {
-            // Read plugin config
-            const configPath = path.resolve(process.cwd(), 'plugins/printers/printer-drivers/config.json');
-            const configContent = await fs.readFile(configPath, 'utf8');
-            const config = JSON.parse(configContent);
+    /**
+     * Helper to access Database securely.
+     */
+    private static async getDB() {
+        if (this.api) {
+            return this.api.database;
+        } else {
+            // Fallback for API routes (Admin context)
+            const { DatabaseBroker } = await import('../../../src/core/database-broker');
+            const dbConfig = await import('../../../src/config/database.json');
 
-            this.STORAGE_PATH = config.repositoryPath || 'C:\\Drivers';
-        } catch (error) {
-            // Config doesn't exist or is invalid, use default
-            this.STORAGE_PATH = 'C:\\Drivers';
+            await DatabaseBroker.initialize(dbConfig as any);
+            return DatabaseBroker;
         }
-
-        // Ensure storage directory exists
-        await fs.mkdir(this.STORAGE_PATH, { recursive: true });
-
-        return this.STORAGE_PATH;
     }
 
     /**
@@ -180,7 +206,7 @@ export class PrinterService {
             WHERE StorageHash = @hash
         `;
 
-        const existingResult = await db.query<{ Id: number }>(existingQuery, {
+        const existingResult = await (await this.getDB()).query<{ Id: number }>(existingQuery, {
             hash: hash
         });
 
@@ -189,13 +215,16 @@ export class PrinterService {
             return { id: existingResult[0].Id, manifest };
         }
 
-        // 4. Write file to disk using hash as filename
-        const storagePath = await this.getStoragePath();
-        const fileExtension = path.extname(originalName);
-        const diskFilename = `${hash}${fileExtension}`;
-        const fullPath = path.join(storagePath, diskFilename);
+        // 4. Write file to storage using sharded path
+        // 4. Write file to storage using sharded path
+        const storage = await this.getStorage();
 
-        await fs.writeFile(fullPath, fileBuffer);
+        const hashLower = hash.toLowerCase();
+        const shard1 = hashLower.substring(0, 2);
+        const relativePath = `${shard1}/${hashLower}.pd`;
+
+        // Use storage interface (works in both Plugin and API contexts)
+        await storage.write(relativePath, fileBuffer);
 
         // 5. Insert into database with PackageId from manifest
         const insertQuery = `
@@ -203,6 +232,9 @@ export class PrinterService {
                 PackageId,
                 OriginalFilename,
                 StorageHash,
+                DisplayName,
+                Version,
+                Vendor,
                 UploadedBy,
                 CreatedAt
             )
@@ -211,15 +243,21 @@ export class PrinterService {
                 @packageId,
                 @originalName,
                 @hash,
+                @displayName,
+                @version,
+                @vendor,
                 @user,
                 GETDATE()
             )
         `;
 
-        const insertResult = await db.query<{ Id: number }>(insertQuery, {
+        const insertResult = await (await this.getDB()).query<{ Id: number }>(insertQuery, {
             packageId: manifest.packageInfo.id,
             originalName: originalName,
             hash: hash,
+            displayName: manifest.driverMetadata.displayName,
+            version: manifest.driverMetadata.version,
+            vendor: manifest.driverMetadata.vendor,
             user: user
         });
 
@@ -256,7 +294,7 @@ export class PrinterService {
             )
         `;
 
-        await db.query(insertQuery, {
+        await (await this.getDB()).query(insertQuery, {
             packageId: packageId,
             modelName: modelName,
             hardwareId: hardwareId
@@ -272,18 +310,31 @@ export class PrinterService {
         const query = `
             SELECT 
                 Id,
+                PackageId,
                 OriginalFilename,
-                DiskFilename,
+                DisplayName,
+                Version,
+                Vendor,
                 StorageHash,
-                FileSize,
                 UploadedBy,
-                UploadedAt,
                 CreatedAt
             FROM [plg_printer_drivers].Packages 
             ORDER BY CreatedAt DESC
         `;
 
-        const result = await db.query<any>(query);
-        return result;
+        const result = await (await this.getDB()).query<any>(query);
+
+        // Map to UI Expected Interface (PrinterDriver)
+        return result.map(row => ({
+            id: row.PackageId,
+            name: row.DisplayName || row.OriginalFilename.replace(/\.pd$/, '').replace(/_/g, ' '),
+            version: row.Version || '1.0.0',
+            os: 'Windows x64', // Keep fallback for now
+            vendor: row.Vendor || 'Generic',
+            hash: row.StorageHash,
+            uploadedBy: row.UploadedBy,
+            createdAt: row.CreatedAt
+        }));
     }
 }
+

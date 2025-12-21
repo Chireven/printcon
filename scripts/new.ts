@@ -18,32 +18,52 @@ async function main() {
 
     console.log('\n--- PrintCon Plugin Generator ---');
 
-    const name = await rl.question('Plugin Name (e.g. printer-status): ');
-    const typeInput = await rl.question('Plugin Type (logonprovider, logging, feature, printers, databaseProvider): ');
+    // Check for command line arguments: <type> <name>
+    const argType = process.argv[2];
+    const argName = process.argv[3];
+
+
+
+    let typeInput = argType;
+    if (!typeInput) {
+        typeInput = await rl.question('Plugin Type (logonProvider, loggingProvider, feature, printers, databaseProvider, storageProvider): ');
+    } else {
+        console.log(`Plugin Type: ${typeInput}`);
+    }
+
+    let name = argName;
+    if (!name) {
+        name = await rl.question('Plugin Name (e.g. printer-status): ');
+    } else {
+        console.log(`Plugin Name: ${name}`);
+    }
 
     const normalizedInput = typeInput.toLowerCase().trim();
     const typeMap: Record<string, string> = {
         'logonprovider': 'logonprovider',
-        'logging': 'logging',
+        'loggingprovider': 'loggingProvider',
+        'logging': 'loggingProvider', // alias
         'feature': 'feature',
         'printers': 'printers',
-        'databaseprovider': 'databaseProvider'
+        'databaseprovider': 'databaseProvider',
+        'storageprovider': 'storageProvider'
     };
 
     const type = typeMap[normalizedInput];
 
     if (!type) {
-        console.error('Invalid plugin type. Must be: logonprovider, logging, feature, printers, or databaseProvider.');
+        console.error('Invalid plugin type. Must be: logonProvider, loggingProvider, feature, printers, databaseProvider, or storageProvider.');
         process.exit(1);
     }
 
     const baseDir = path.join(process.cwd(), 'plugins');
     const folderMap: Record<string, string> = {
         'logonprovider': 'logonproviders',
-        'logging': 'logging',
+        'loggingProvider': 'loggingProviders',
         'feature': 'features',
         'printers': 'printers',
-        'databaseProvider': 'databaseProviders'
+        'databaseProvider': 'databaseProviders',
+        'storageProvider': 'storageProviders'
     };
 
     const targetDir = path.join(baseDir, folderMap[type], name);
@@ -95,7 +115,7 @@ export const initialize: PluginInitializer = async (api) => {
     fs.writeFileSync(path.join(targetDir, 'index.ts'), indexContent);
 
     // 3. Register in registry.json
-    updateRegistry(manifest, path.join('plugins', typeMap[type], name));
+    updateRegistry(manifest, path.join('plugins', folderMap[type], name));
 
     console.log(`Success! Plugin ${name} generated successfully.`);
     console.log(`Location: ${targetDir}`);

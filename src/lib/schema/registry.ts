@@ -12,12 +12,13 @@ interface PluginManifest {
     };
 }
 
-export async function getAggregatedSchema(): Promise<{ tables: TableDefinition[], schemas: string[] }> {
+export async function getAggregatedSchema(): Promise<{ tables: TableDefinition[], schemas: string[], schemaToPluginMap: Record<string, string> }> {
     const tables: TableDefinition[] = [...SchemaDefinitions];
     const schemas = new Set<string>();
+    const schemaToPluginMap: Record<string, string> = {};
 
     if (!fs.existsSync(PLUGINS_DIR)) {
-        return { tables, schemas: [] };
+        return { tables, schemas: [], schemaToPluginMap: {} };
     }
 
     try {
@@ -41,7 +42,10 @@ export async function getAggregatedSchema(): Promise<{ tables: TableDefinition[]
 
                         if (manifest.database) {
                             const dbSchema = manifest.database.schema;
-                            if (dbSchema) schemas.add(dbSchema);
+                            if (dbSchema) {
+                                schemas.add(dbSchema);
+                                schemaToPluginMap[dbSchema] = manifest.id;
+                            }
 
                             if (manifest.database.tables) {
                                 manifest.database.tables.forEach(t => {
@@ -62,5 +66,5 @@ export async function getAggregatedSchema(): Promise<{ tables: TableDefinition[]
         console.error('Error scanning plugins for schema:', e);
     }
 
-    return { tables, schemas: Array.from(schemas) };
+    return { tables, schemas: Array.from(schemas), schemaToPluginMap };
 }

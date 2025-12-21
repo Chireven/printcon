@@ -1,0 +1,16 @@
+{
+  "test-isolation": [
+    {
+      "label": "Database",
+      "value": "Synced",
+      "severity": "success"
+    }
+  ],
+  "printer-drivers": [
+    {
+      "label": "Database",
+      "value": "Synced",
+      "severity": "success"
+    }
+  ]
+}
