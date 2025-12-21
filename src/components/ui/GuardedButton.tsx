@@ -4,7 +4,7 @@ import { useMockAuth } from '../../hooks/useMockAuth';
 
 interface GuardedButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
     requiredPermission: string;
-    variant?: 'primary' | 'destructive' | 'default';
+    variant?: 'primary' | 'destructive' | 'default' | 'ghost-blue';
 }
 
 export const GuardedButton: React.FC<GuardedButtonProps> = ({
@@ -25,6 +25,8 @@ export const GuardedButton: React.FC<GuardedButtonProps> = ({
         variantStyles = "bg-sky-500 text-white hover:bg-sky-400 shadow-lg shadow-sky-500/20";
     } else if (variant === 'destructive') {
         variantStyles = "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20";
+    } else if (variant === 'ghost-blue') {
+        variantStyles = "bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 border border-sky-500/20";
     } else {
         variantStyles = "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700";
     }

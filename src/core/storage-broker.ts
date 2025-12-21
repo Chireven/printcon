@@ -18,7 +18,7 @@ export class StorageBroker {
      * 
      * @param config - Storage configuration specifying provider and settings
      */
-    static async initialize(config: StorageConfig): Promise<void> {
+    static async initialize(config: StorageConfig, waitForDynamic: boolean = false): Promise<void> {
         // Idempotency check? 
         // We might want to allow re-initialization for hot-swapping, 
         // so we check if it's the SAME config, but here just assume re-init is allowed if called explicitly.
@@ -36,13 +36,15 @@ export class StorageBroker {
                 console.log(`[StorageBroker] Resolving dynamic path (BACKGROUND): ${variableKey}`);
 
                 // Start background resolution
-                (async () => {
+                const resolveTask = (async () => {
                     try {
                         // Import VariableService dynamically
                         const { VariableService } = await import('./variables');
                         const { EventHub } = await import('./events');
 
-                        // Wait for the variable (long timeout allowed in background)
+                        // Wait for the variable (long timeout allowed in background, shorter if waiting)
+                        // If waiting, we probably want a shorter timeout or just let caller handle it?
+                        // Let's use existing logic.
                         const resolvedPath = await VariableService.get<string>(variableKey, 30000); // 30s timeout
                         console.log(`[StorageBroker] Resolved ${variableKey} -> ${resolvedPath}`);
 
@@ -63,10 +65,15 @@ export class StorageBroker {
                     } catch (err: any) {
                         console.error(`[StorageBroker] Failed to resolve storage path variable: ${err.message}`);
                         // System will remain uninitialized
+                        throw err;
                     }
                 })();
 
-                // Return immediately to unblock startup
+                if (waitForDynamic) {
+                    await resolveTask;
+                }
+
+                // Return immediately to unblock startup if not waiting
                 return;
             }
 
@@ -76,6 +83,7 @@ export class StorageBroker {
         } catch (error: any) {
             console.error(`[StorageBroker] Failed to initialize provider: ${error.message}`);
             // Don't throw, just log. This allows the app to start even if storage is broken.
+            if (waitForDynamic) throw error;
         }
     }
 

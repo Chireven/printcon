@@ -89,9 +89,8 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, sele
     // Reset selection on nav
     useEffect(() => { setSelectedFile(null); }, [currentPath]);
 
-    // For Select Folder button: If we are at root (Drives list), we probably can't select "Root". User must select a drive.
-    // If currentPath is empty, we are viewing list of drives. Can't select "System".
-    const canSelect = isValid && (selectionType === 'folder' ? currentPath !== '' : true);
+    // For Select Folder button: Must be not root AND contain at least one valid file (e.g. .inf)
+    const canSelect = isValid && (selectionType === 'folder' ? (currentPath !== '' && hasValidFile) : true);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {

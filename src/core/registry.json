@@ -34,14 +34,5 @@
     "path": "plugins/storageProviders/storage-localdisk",
     "installedAt": "2025-12-21T02:20:43.379Z",
     "locked": true
-  },
-  {
-    "id": "test-isolation",
-    "name": "Isolation Tester",
-    "version": "1.0.0",
-    "type": "feature",
-    "path": "plugins/features/test-isolation",
-    "installedAt": "2025-12-21T05:00:45.580Z",
-    "active": true
   }
 ]

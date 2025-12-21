@@ -1,5 +1,5 @@
 import type { PluginInitializer } from '../../../src/core/types/plugin';
-import { PrinterService } from './service.ts';
+import { PrinterService } from './service';
 
 // Mock Data
 // Data cleared by request
@@ -48,6 +48,42 @@ export const initialize: PluginInitializer = async (api) => {
             console.error('[PrinterDrivers] Failed to list drivers:', e);
             api.events.emit('RESPONSE_DRIVERS', {
                 drivers: [],
+                error: e.message
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_UPDATE_DRIVER
+    api.events.on('REQUEST_UPDATE_DRIVER', async (payload: any) => {
+        try {
+            console.log('[PrinterDrivers] Updating driver:', payload.id);
+            await PrinterService.updatePackage(payload.id, payload.metadata);
+            api.events.emit('RESPONSE_UPDATE_DRIVER', {
+                success: true,
+                id: payload.id
+            });
+        } catch (e: any) {
+            console.error('[PrinterDrivers] Failed to update driver:', e);
+            api.events.emit('RESPONSE_UPDATE_DRIVER', {
+                success: false,
+                error: e.message
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_DELETE_DRIVER
+    api.events.on('REQUEST_DELETE_DRIVER', async (payload: any) => {
+        try {
+            console.log('[PrinterDrivers] Deleting driver:', payload.id);
+            const result = await PrinterService.deletePackage(payload.id);
+            api.events.emit('RESPONSE_DELETE_DRIVER', {
+                success: true,
+                fileDeleted: result.fileDeleted
+            });
+        } catch (e: any) {
+            console.error('[PrinterDrivers] Failed to delete driver:', e);
+            api.events.emit('RESPONSE_DELETE_DRIVER', {
+                success: false,
                 error: e.message
             });
         }

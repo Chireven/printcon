@@ -114,6 +114,34 @@ export class PDPackageBuilder {
         const content = await fs.readFile(infPath, 'utf8');
         const lines = content.split('\n').map(l => l.trim());
 
+        // 0. Helper: Parse [Strings] section for variable substitution
+        const stringsMap: Record<string, string> = {};
+        const stringsMatch = content.match(/\[Strings\]\s*\n([^\[]*)/i);
+        if (stringsMatch) {
+            const stringLines = stringsMatch[1].split('\n');
+            for (const line of stringLines) {
+                // Key = "Value"
+                const match = line.match(/^\s*([^=]+)\s*=\s*"([^"]+)"/);
+                if (match) {
+                    stringsMap[match[1].trim().toLowerCase()] = match[2];
+                } else {
+                    // Key = Value (no quotes)
+                    const matchNoQuote = line.match(/^\s*([^=]+)\s*=\s*([^"\s]+.*)/);
+                    if (matchNoQuote) {
+                        stringsMap[matchNoQuote[1].trim().toLowerCase()] = matchNoQuote[2].trim();
+                    }
+                }
+            }
+        }
+
+        const resolveString = (val: string): string => {
+            if (val.startsWith('%') && val.endsWith('%')) {
+                const key = val.slice(1, -1).toLowerCase();
+                return stringsMap[key] || val;
+            }
+            return val;
+        };
+
         // Extract driver name from file name as fallback
         const fallbackName = path.basename(infPath, '.inf');
 
@@ -133,12 +161,12 @@ export class PDPackageBuilder {
         // Pattern 1: [Manufacturer] section with company name
         const mfgSectionMatch = content.match(/\[Manufacturer\]\s*\n\s*([^=\n]+)\s*=/i);
         if (mfgSectionMatch) {
-            manufacturer = mfgSectionMatch[1].trim().replace(/"/g, '');
+            manufacturer = resolveString(mfgSectionMatch[1].trim().replace(/"/g, ''));
         } else {
             // Pattern 2: Look for Provider in [Version] section
             const providerMatch = content.match(/Provider\s*=\s*([^,\n]+)/i);
             if (providerMatch) {
-                manufacturer = providerMatch[1].trim().replace(/"/g, '').replace(/%/g, '');
+                manufacturer = resolveString(providerMatch[1].trim().replace(/"/g, ''));
             }
         }
 
@@ -151,9 +179,15 @@ export class PDPackageBuilder {
         const sectionHeaderRegex = /^\[([^\]]+)\]/gm;
         let sectionMatch;
 
+        // Need to check un-resolved raw string for section matching logic previously used?
+        // Actually, the section names in INF usually use the raw token if it's a token.
+        // But let's look for sections that MATCH the manufacturer we found.
+
         while ((sectionMatch = sectionHeaderRegex.exec(content)) !== null) {
             const sectionName = sectionMatch[1];
             // Look for sections that contain manufacturer name or model definitions
+            // Case 1: Standard [MfgName]
+            // Case 2: [MfgName.Server.NTx86]
             if (sectionName.toLowerCase().includes(manufacturer.toLowerCase().substring(0, 5)) ||
                 sectionName.toLowerCase().includes('models') ||
                 sectionName.match(/\.(nt|ntamd64|ntx86|ntarm)/i)) {
@@ -173,10 +207,13 @@ export class PDPackageBuilder {
                     if (!line.trim() || line.trim().startsWith(';')) continue;
 
                     // Pattern: "Model Name" = InstallSection, HWID
+                    // Verify if Model Name is a token
                     const modelMatch = line.match(/"([^"]+)"\s*=\s*([^,]+)(?:,\s*([^\s;]+))?/);
                     if (modelMatch) {
-                        const modelName = modelMatch[1];
+                        const rawModelName = modelMatch[1];
                         const hwid = modelMatch[3];
+
+                        const modelName = resolveString(rawModelName);
 
                         if (modelName && !models.includes(modelName)) {
                             models.push(modelName);
@@ -187,9 +224,26 @@ export class PDPackageBuilder {
                     } else {
                         // Pattern without quotes: ModelName = InstallSection, HWID
                         const altMatch = line.match(/^([^=]+?)\s*=\s*([^,]+)(?:,\s*([^\s;]+))?/);
-                        if (altMatch && !altMatch[1].startsWith('%')) {
-                            const modelName = altMatch[1].trim();
+                        if (altMatch && !altMatch[1].startsWith('%')) { // If it starts with %, it's a token key without quotes
+                            // Actually even without quotes, it can be a token %Key%
+                            // The regex !startsWith('%') is suspicious if we want to support token keys.
+                            // But usually keys are like %Key% = InstallSection.
+
+                            let rawName = altMatch[1].trim();
                             const hwid = altMatch[3];
+                            const modelName = resolveString(rawName);
+
+                            if (modelName && !models.includes(modelName)) {
+                                models.push(modelName);
+                            }
+                            if (hwid && !hardwareIds.includes(hwid)) {
+                                hardwareIds.push(hwid);
+                            }
+                        } else if (altMatch && altMatch[1].startsWith('%')) {
+                            // Handle explicit token keys
+                            let rawName = altMatch[1].trim();
+                            const hwid = altMatch[3];
+                            const modelName = resolveString(rawName);
 
                             if (modelName && !models.includes(modelName)) {
                                 models.push(modelName);
@@ -203,19 +257,15 @@ export class PDPackageBuilder {
             }
         }
 
-        // If no models found, try to extract from Strings section
+        // If no models found, fallback scan logic...
         if (models.length === 0) {
-            const stringsMatch = content.match(/\[Strings\]\s*\n([^\[]*)/i);
-            if (stringsMatch) {
-                const stringLines = stringsMatch[1].split('\n');
-                for (const line of stringLines) {
-                    const stringMatch = line.match(/^\s*([^=]+)\s*=\s*"([^"]+)"/);
-                    if (stringMatch && stringMatch[2].length > 3 && stringMatch[2].length < 100) {
-                        // Use first reasonable string as model name
-                        models.push(stringMatch[2]);
-                        break;
-                    }
-                }
+            // ... (existing fallback logic, but maybe use stringsMap?) 
+            // Existing logic scanned [Strings] specifically.
+            // Since we parsed stringsMap, we can iterate it.
+            const potentialModels = Object.values(stringsMap).filter(v => v.length > 3 && v.length < 100);
+            if (potentialModels.length > 0) {
+                // Heuristic: Pick longest? Or first?
+                models.push(potentialModels[0]);
             }
         }
 

@@ -67,7 +67,9 @@ export class PrinterService {
             const storageConfig = await import('../../../src/config/storage.json'); // Re-use core config
 
             // Ensure initialized (safe now that it's idempotent)
-            await StorageBroker.initialize(storageConfig as any);
+            // Fix: pass 'default' if it exists (module import) and waitForDynamic=true
+            const config = (storageConfig as any).default || storageConfig;
+            await StorageBroker.initialize(config, true);
 
             return {
                 write: (path: string, buffer: Buffer) => StorageBroker.write(path, buffer),
@@ -91,7 +93,12 @@ export class PrinterService {
             const dbConfig = await import('../../../src/config/database.json');
 
             await DatabaseBroker.initialize(dbConfig as any);
-            return DatabaseBroker;
+
+            // Return Adapter compatible with PluginAPI.database
+            return {
+                query: <T>(sql: string, params?: any) =>
+                    DatabaseBroker.query<T>('printer-drivers', sql, params)
+            };
         }
     }
 
@@ -336,5 +343,160 @@ export class PrinterService {
             createdAt: row.CreatedAt
         }));
     }
-}
+    /**
+     * Deletes a driver package and its associated data.
+     * 
+     * @param packageGuid - The public PackageId (GUID)
+     * @returns Object indicating success and whether the physical file was removed
+     * @throws Error if package is in use or not found
+     */
+    public static async deletePackage(packageGuid: string): Promise<{ success: boolean, fileDeleted: boolean }> {
+        const db = await this.getDB();
+        const storage = await this.getStorage();
 
+        // 1. Get Internal ID and Hash
+        const lookupQuery = `
+            SELECT Id, StorageHash 
+            FROM [plg_printer_drivers].Packages 
+            WHERE PackageId = @packageGuid
+        `;
+        const lookup = await db.query<{ Id: number, StorageHash: string }>(lookupQuery, { packageGuid });
+
+        if (lookup.length === 0) {
+            throw new Error('Package not found');
+        }
+
+        const { Id: internalId, StorageHash: hash } = lookup[0];
+
+        // 2. Delete from Database (Transaction-like via order)
+        // Note: If this fails due to FK constraint (e.g. used by Printers), it throws and aborts.
+
+        // A. Remove Supported Models
+        await db.query('DELETE FROM [plg_printer_drivers].SupportedModels WHERE PackageId = @internalId', { internalId });
+
+        // B. Remove Package Record
+        await db.query('DELETE FROM [plg_printer_drivers].Packages WHERE Id = @internalId', { internalId });
+
+        // 3. Check Reference Count (Is file used by another package?)
+        // Note: Even though current save logic deduplicates, we support N:1 here for safety/future-proofing.
+        const refCheckQuery = `
+            SELECT Count(Id) as Count 
+            FROM [plg_printer_drivers].Packages 
+            WHERE StorageHash = @hash
+        `;
+        // Use generic 'any' or specific interface since count returns might vary by driver
+        const refResult = await db.query<any>(refCheckQuery, { hash });
+        // Start counting safe
+        const refCount = refResult[0]?.Count || 0;
+
+        let fileDeleted = false;
+
+        if (refCount === 0) {
+            // 4. Safe to Delete File from Storage
+            const hashLower = hash.toLowerCase();
+            const shard1 = hashLower.substring(0, 2);
+            const relativePath = `${shard1}/${hashLower}.pd`;
+
+            try {
+                await storage.delete(relativePath);
+                fileDeleted = true;
+            } catch (e) {
+                console.warn(`[PrinterService] Failed to delete file ${relativePath}, ignoring as DB is clean.`, e);
+            }
+        } else {
+            console.log(`[PrinterService] File for hash ${hash} preserved (Ref Count: ${refCount})`);
+        }
+
+        return { success: true, fileDeleted };
+    }
+
+    /**
+     * Retrieves the raw content of a driver package file.
+     * Used for downloads and extraction.
+     * 
+     * @param packageGuid - The public PackageId (GUID)
+     * @returns Buffer containing the file content
+     */
+    public static async getRawPackage(packageGuid: string): Promise<Buffer> {
+        const db = await this.getDB();
+        const storage = await this.getStorage();
+
+        // 1. Get Hash
+        const lookup = await db.query<{ StorageHash: string }>(
+            'SELECT StorageHash FROM [plg_printer_drivers].Packages WHERE PackageId = @packageGuid',
+            { packageGuid }
+        );
+
+        if (!lookup || lookup.length === 0) {
+            throw new Error('Package not found');
+        }
+
+        const hash = lookup[0].StorageHash;
+
+        // 2. Read from Storage
+        // Dual-Path Resolution (Read Fallback logic per technical spec)
+        const hashLower = hash.toLowerCase();
+        const shard1 = hashLower.substring(0, 2);
+        const relativePath = `${shard1}/${hashLower}.pd`;
+
+        try {
+            return await storage.read(relativePath);
+        } catch (e) {
+            // TODO: Add fallback to 2-tier path per spec if primary fails
+            // For now, re-throw with context
+            console.error(`[PrinterService] Failed to read package ${relativePath}`, e);
+            throw new Error('Package file missing from storage');
+        }
+    }
+
+    /**
+     * Updates the metadata for a driver package.
+     * Note: This does NOT update the file content, only the database record.
+     * 
+     * @param packageGuid - The public PackageId (GUID)
+     * @param metadata - The fields to update
+     */
+    public static async updatePackage(
+        packageGuid: string,
+        metadata: {
+            displayName?: string;
+            version?: string;
+            vendor?: string;
+            os?: string; // Not currently stored in DB but passed in UI
+        }
+    ): Promise<void> {
+        const db = await this.getDB();
+
+        // Build dynamic query
+        const updates: string[] = [];
+        const params: any = { packageGuid };
+
+        if (metadata.displayName !== undefined) {
+            updates.push('DisplayName = @displayName');
+            params.displayName = metadata.displayName;
+        }
+        if (metadata.version !== undefined) {
+            updates.push('Version = @version');
+            params.version = metadata.version;
+        }
+        if (metadata.vendor !== undefined) {
+            updates.push('Vendor = @vendor');
+            params.vendor = metadata.vendor;
+        }
+
+        if (updates.length === 0) return; // Nothing to update
+
+        const query = `
+            UPDATE [plg_printer_drivers].Packages
+            SET ${updates.join(', ')}
+            WHERE PackageId = @packageGuid
+        `;
+
+        console.log('[PrinterService.updatePackage] Executing query:', query);
+        console.log('[PrinterService.updatePackage] Parameters:', JSON.stringify(params, null, 2));
+
+        await db.query(query, params);
+
+        console.log('[PrinterService.updatePackage] Update executed successfully');
+    }
+}

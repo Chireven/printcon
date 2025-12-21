@@ -198,6 +198,7 @@ export default function AddDriverModal({ isOpen, onClose, onAdd }: AddDriverModa
                         {isPickerOpen ? (
                             <div className="p-6 flex-1 bg-slate-950/30">
                                 <FilePicker
+                                    selectionType="folder"
                                     onSelect={(selectedPath) => {
                                         setPath(selectedPath);
                                         setIsPickerOpen(false);

@@ -1,14 +1,19 @@
 'use client';
 
+
+
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Package, Download, AlertCircle, Loader2, RefreshCw, Database, Factory } from 'lucide-react';
+import { Package, Download, AlertCircle, Loader2, RefreshCw, Database, Factory, Plus, Trash2, Pencil } from 'lucide-react';
+import { toast } from 'sonner';
 import { PrinterDriver } from '../../../../src/core/types/plugin';
 import { EventHub } from '../../../../src/core/events';
 import { GuardedButton } from '../../../../src/components/ui/GuardedButton';
 import { useSettings } from '../../../../src/providers/SettingsProvider';
+import { ConfirmationModal } from '../../../../src/components/ui/ConfirmationModal';
 import AddDriverModal from './AddDriverModal';
-import { Plus } from 'lucide-react';
+import EditDriverModal from './EditDriverModal';
+
 
 /**
  * Driver Repository UI
@@ -19,9 +24,40 @@ export default function DriverRepository() {
     const [drivers, setDrivers] = useState<PrinterDriver[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [installing, setInstalling] = useState<string | null>(null);
+    const [downloading, setDownloading] = useState<string | null>(null);
+    const [driverToDelete, setDriverToDelete] = useState<{ id: string, name: string } | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [driverToEdit, setDriverToEdit] = useState<PrinterDriver | null>(null);
     const { highContrast } = useSettings();
+
+    const handleEdit = (driver: PrinterDriver) => {
+        setDriverToEdit(driver);
+        setIsEditModalOpen(true);
+    };
+
+    const handleSaveDriver = async (updatedDriver: PrinterDriver) => {
+        setDrivers(prev => prev.map(d => d.id === updatedDriver.id ? updatedDriver : d));
+
+        try {
+            const response = await fetch(`/api/drivers/${updatedDriver.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedDriver)
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to update driver');
+            }
+
+            toast.success(`Driver ${updatedDriver.name} saved successfully`);
+        } catch (error: any) {
+            console.error('Save failed:', error);
+            toast.error(`Failed to save: ${error.message}`);
+            fetchDrivers();
+        }
+    };
 
     useEffect(() => {
         fetchDrivers();
@@ -66,21 +102,89 @@ export default function DriverRepository() {
         }
     };
 
-    const handleInstall = (driverId: string) => {
-        setInstalling(driverId);
-        console.log(`Installing ${driverId}...`);
+    // ... imports
 
-        // Mock install delay
-        setTimeout(() => {
-            setInstalling(null);
-            alert(`Driver ${driverId} installed successfully (Mock).`);
-        }, 1500);
+    const handleDownload = (driverId: string, driverName?: string) => {
+        setDownloading(driverId);
+        console.log(`Downloading ${driverId}...`);
+
+        try {
+            // Trigger download via API (Hidden Link Method)
+            const link = document.createElement('a');
+
+            // Build URL with optional name param for custom filename
+            let url = `/api/drivers/${driverId}/download`;
+            if (driverName) {
+                url += `?name=${encodeURIComponent(driverName)}`;
+            }
+
+            link.href = url;
+            // The download attribute is just a hint; the Content-Disposition header from API takes precedence usually,
+            // but we'll include a fallback.
+            link.download = driverName ? `${driverName}.zip` : `${driverId}_extracted.zip`;
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (e) {
+            console.error("Download trigger failed", e);
+            alert("Failed to start download.");
+        } finally {
+            // Reset state after a brief delay to allow animation to show
+            setTimeout(() => setDownloading(null), 1000);
+        }
+    };
+
+    const handleRemove = (driverId: string, driverName: string) => {
+        setDriverToDelete({ id: driverId, name: driverName });
+    };
+
+    const executeDelete = async () => {
+        if (!driverToDelete) return;
+        const driverId = driverToDelete.id;
+
+        // Optimistically close modal
+        setDriverToDelete(null);
+
+        try {
+            const response = await fetch('/api/system/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'REQUEST_DELETE_DRIVER',
+                    pluginId: 'printer-drivers',
+                    data: { id: driverId }
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete driver');
+            }
+
+            const result = await response.json();
+
+            if (!result.success) {
+                throw new Error(result.error || 'Delete failed');
+            }
+
+            if (result.fileDeleted === false) {
+                toast.warning('Driver entry removed, but the repository file was preserved because it is shared by another driver.');
+            } else {
+                toast.success('Driver deleted successfully');
+            }
+
+            // Refresh list
+            fetchDrivers();
+        } catch (error: any) {
+            console.error('Delete failed:', error);
+            toast.error(error.message || 'Failed to delete driver');
+        }
     };
 
     const handleAddDriver = (newDriver: any) => {
         // Optimistic UI update
         const driver: PrinterDriver = {
-            id: `local-${Date.now()}`,
+            id: `local - ${Date.now()}`,
             name: newDriver.name,
             version: newDriver.version,
             os: newDriver.os
@@ -198,31 +302,37 @@ export default function DriverRepository() {
                                 <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
                                     <GuardedButton
                                         requiredPermission="driver:upload"
-                                        onClick={() => handleInstall(driver.id)}
-                                        disabled={installing === driver.id}
-                                        variant="primary"
-                                        className="text-xs"
+                                        onClick={() => handleDownload(driver.id, driver.name)}
+                                        disabled={downloading === driver.id}
+                                        variant="ghost-blue"
+                                        className="!w-8 !h-8 !p-0 items-center justify-center flex"
+                                        title="Download Driver"
                                     >
-                                        {installing === driver.id ? (
-                                            <>
-                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                Installing...
-                                            </>
+                                        {downloading === driver.id ? (
+                                            <Loader2 className="w-4 h-4 animate-spin" />
                                         ) : (
-                                            <>
-                                                <Download className="w-3.5 h-3.5" />
-                                                Install
-                                            </>
+                                            <Download size={16} className="text-sky-400" />
                                         )}
                                     </GuardedButton>
 
                                     <GuardedButton
+                                        requiredPermission="driver:upload"
+                                        onClick={() => handleEdit(driver)}
+                                        variant="default"
+                                        className="!w-8 !h-8 !p-0 !bg-amber-500/10 !text-amber-400 !border-amber-500/20 hover:!bg-amber-500/20 hover:!border-amber-500/30 hover:shadow-amber-500/10 items-center justify-center flex"
+                                        title="Edit Driver"
+                                    >
+                                        <Pencil size={16} />
+                                    </GuardedButton>
+
+                                    <GuardedButton
                                         requiredPermission="driver:remove"
+                                        onClick={() => handleRemove(driver.id, driver.name)}
                                         variant="destructive"
-                                        className="text-xs"
+                                        className="!w-8 !h-8 !p-0 !bg-red-500/10 !text-red-400 !border-red-500/20 hover:!bg-red-500/20 hover:!border-red-500/30 hover:shadow-red-500/10 items-center justify-center flex"
                                         title="Remove Driver"
                                     >
-                                        Remove
+                                        <Trash2 size={16} />
                                     </GuardedButton>
                                 </td>
                             </tr>
@@ -241,6 +351,29 @@ export default function DriverRepository() {
                 isOpen={isAddModalOpen}
                 onClose={() => setIsAddModalOpen(false)}
                 onAdd={handleAddDriver}
+            />
+
+            <EditDriverModal
+                isOpen={isEditModalOpen}
+                onClose={() => setIsEditModalOpen(false)}
+                onSave={handleSaveDriver}
+                driver={driverToEdit}
+            />
+
+            <ConfirmationModal
+                isOpen={!!driverToDelete}
+                onClose={() => setDriverToDelete(null)}
+                onConfirm={executeDelete}
+                title="Delete Driver"
+                description={
+                    <span>
+                        Are you sure you want to delete <span className="font-bold text-white">{driverToDelete?.name}</span>?
+                        <br />
+                        This action cannot be undone.
+                    </span>
+                }
+                confirmLabel="Yes, Delete Driver"
+                variant="destructive"
             />
 
         </div>
