@@ -108,6 +108,12 @@ export interface PluginAPI {
      * @returns Array of relative paths
      */
     list(prefix: string): Promise<string[]>;
+
+    /**
+     * Deletes an empty directory from storage.
+     * @param relativePath - Path relative to storage root (e.g., "12/")
+     */
+    deleteDirectory(relativePath: string): Promise<void>;
   };
   /**
    * Variable Resolution API

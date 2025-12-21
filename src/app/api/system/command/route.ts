@@ -37,11 +37,23 @@ export async function POST(req: NextRequest) {
 
                 console.log(`[API] Waiting for ${responseEvent}...`);
 
+                // Dynamic timeout based on operation type
+                let timeoutMs = 2000; // Default 2 seconds
+
+                // Long-running operations get extended timeout
+                if (event === 'REQUEST_BUILD_PACKAGE') {
+                    timeoutMs = 30000; // 30 seconds for package building
+                } else if (event === 'REQUEST_DOWNLOAD_DRIVER') {
+                    timeoutMs = 10000; // 10 seconds for downloads
+                } else if (event === 'REQUEST_FIX_SCHEMA' || event === 'REQUEST_VALIDATE_SCHEMA') {
+                    timeoutMs = 10000; // 10 seconds for schema operations
+                }
+
                 return new Promise<NextResponse>((resolve) => {
                     const timeout = setTimeout(() => {
-                        console.warn(`[API] Timeout waiting for ${responseEvent}`);
+                        console.warn(`[API] Timeout waiting for ${responseEvent} after ${timeoutMs}ms`);
                         resolve(NextResponse.json({ error: 'Gateway Timeout' }, { status: 504 }));
-                    }, 2000);
+                    }, timeoutMs);
 
                     const listener = (payload: any) => {
                         console.log(`[API] Received ${responseEvent}, resolving.`, payload);

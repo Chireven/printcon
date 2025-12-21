@@ -68,15 +68,25 @@ export default function AddDriverModal({ isOpen, onClose, onAdd }: AddDriverModa
             setValidationError(null);
 
             try {
-                const response = await fetch('/api/validate-inf-path', {
+                const response = await fetch('/api/system/command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filePath: path })
+                    body: JSON.stringify({
+                        event: 'REQUEST_VALIDATE_INF',
+                        pluginId: 'printer-drivers',
+                        data: { filePath: path }
+                    })
                 });
 
                 const result = await response.json();
 
-                if (result.valid) {
+                if (!result.success) {
+                    throw new Error(result.error || 'Validation failed');
+                }
+
+                const validation = result.validation;
+
+                if (validation.valid) {
                     setIsValidInf(true);
                     setValidationError(null);
                     // Auto-set name from path as placeholder (will be overwritten by manifest)
@@ -84,7 +94,7 @@ export default function AddDriverModal({ isOpen, onClose, onAdd }: AddDriverModa
                     setName(folderName);
                 } else {
                     setIsValidInf(false);
-                    setValidationError(result.error || 'Invalid INF path');
+                    setValidationError(validation.error || 'Invalid INF path');
                     setName('');
                 }
             } catch (error: any) {
@@ -114,26 +124,37 @@ export default function AddDriverModal({ isOpen, onClose, onAdd }: AddDriverModa
 
         try {
             // Build and upload .pd package from INF folder
-            const response = await fetch('/api/build-pd-package', {
+            const response = await fetch('/api/system/command', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    sourcePath: path,
-                    user: 'admin' // TODO: Get from auth context
+                    event: 'REQUEST_BUILD_PACKAGE',
+                    pluginId: 'printer-drivers',
+                    data: {
+                        sourcePath: path,
+                        user: 'admin' // TODO: Get from auth context
+                    }
                 })
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Package build failed');
-            }
-
             const result = await response.json();
 
+            if (!result.success) {
+                throw new Error(result.error || 'Package build failed');
+            }
+
             toast.dismiss(toastId);
-            toast.success('Driver package created successfully', {
-                description: `${result.manifest.displayName} v${result.manifest.version} - ${result.manifest.supportedModels} models`
-            });
+
+            // Check if driver name already exists
+            if (result.isDuplicateName) {
+                toast.warning('Duplicate Driver Name', {
+                    description: `A driver named "${result.manifest.displayName}" already exists in the repository.`
+                });
+            } else {
+                toast.success('Driver package created successfully', {
+                    description: `${result.manifest.displayName} v${result.manifest.version} - ${result.manifest.supportedModels} models`
+                });
+            }
 
             // Call onAdd to refresh the list
             onAdd({

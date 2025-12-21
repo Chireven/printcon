@@ -1,6 +1,9 @@
 import sql from 'mssql';
 import { IDatabaseProvider, DatabaseTable } from '../../../src/lib/interfaces/database';
 import { Logger } from '../../../src/core/logger';
+import type { PluginInitializer } from '../../../src/core/types/plugin';
+import fs from 'fs';
+import path from 'path';
 
 export class MssqlProvider implements IDatabaseProvider {
     providerType = 'mssql';
@@ -211,13 +214,13 @@ export class MssqlProvider implements IDatabaseProvider {
 
         // Handle Instance Name
         if (raw.instance && raw.instance.trim() !== '') {
-            // If server doesn't already have instance syntax (server\instance)
-            if (!server.includes('\\')) {
-                server = `${server}\\${raw.instance}`;
+            // If server doesn't already have instance syntax (server\\instance)
+            if (!server.includes('\\\\')) {
+                server = `${server}\\\\${raw.instance}`;
             }
         } else if (process.env.DB_INSTANCE) {
-            if (!server.includes('\\')) {
-                server = `${server}\\${process.env.DB_INSTANCE}`;
+            if (!server.includes('\\\\')) {
+                server = `${server}\\\\${process.env.DB_INSTANCE}`;
             }
         }
 
@@ -249,3 +252,276 @@ export class MssqlProvider implements IDatabaseProvider {
 
 // Factory function accepting config
 export const createMssqlProvider = (config?: any) => new MssqlProvider(config);
+
+// Plugin initialization with Event Hub handlers
+export const initialize: PluginInitializer = async (api) => {
+    console.log('[DatabaseMSSQL] Initializing database provider plugin...');
+
+    // Subscribe to REQUEST_TEST_DB_CONNECTION
+    api.events.on('REQUEST_TEST_DB_CONNECTION', async (payload: any) => {
+        try {
+            console.log('[DatabaseMSSQL] Testing database connection...');
+
+            if (payload.action === 'syncSchema') {
+                // Schema sync operation
+                const provider = new MssqlProvider(payload.config);
+                await provider.connect();
+
+                // Load all active plugin manifests
+                const registry = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src/core/registry.json'), 'utf8'));
+                const results = [];
+
+                for (const plugin of registry) {
+                    if (!plugin.active) continue;
+
+                    const manifestPath = path.join(process.cwd(), plugin.path, 'manifest.json');
+                    if (fs.existsSync(manifestPath)) {
+                        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                        if (manifest.database) {
+                            try {
+                                const synced = await provider.syncSchema(manifest.database, true);
+                                results.push({ plugin: plugin.id, status: synced ? 'synced' : 'failed' });
+                            } catch (e: any) {
+                                results.push({ plugin: plugin.id, status: 'error', message: e.message });
+                            }
+                        }
+                    }
+                }
+
+                api.events.emit('RESPONSE_TEST_DB_CONNECTION', {
+                    success: true,
+                    data: results
+                });
+            } else {
+                // Simple connection test
+                const provider = new MssqlProvider(payload);
+                const result = await provider.query<{ version: string }>('SELECT @@VERSION as version');
+
+                api.events.emit('RESPONSE_TEST_DB_CONNECTION', {
+                    success: true,
+                    data: result
+                });
+            }
+        } catch (e: any) {
+            console.error('[DatabaseMSSQL] Connection test failed:', e);
+            api.events.emit('RESPONSE_TEST_DB_CONNECTION', {
+                success: false,
+                error: e.message
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_VALIDATE_SCHEMA
+    api.events.on('REQUEST_VALIDATE_SCHEMA', async (payload: any) => {
+        try {
+            console.log('[DatabaseMSSQL] Validating schema...');
+            const provider = new MssqlProvider(payload);
+
+            // Get current state
+            const currentSchemaCols = await provider.getCurrentSchema();
+            const currentSchemasList = await provider.getSchemas();
+
+            const currentTables: Record<string, any[]> = {};
+            currentSchemaCols.forEach((row: any) => {
+                const schema = row.SchemaName || 'dbo';
+                const table = row.TableName;
+                const key = `[${schema.toLowerCase()}].[${table.toLowerCase()}]`;
+
+                if (!currentTables[key]) {
+                    currentTables[key] = [];
+                }
+                currentTables[key].push({
+                    name: row.ColumnName,
+                    type: row.DataType,
+                    nullable: row.IsNullable === 'YES'
+                });
+            });
+
+            // Get expected state
+            const { getAggregatedSchema } = await import('../../../src/lib/schema/registry');
+            const { tables: expectedTables, schemas: expectedSchemas, schemaToPluginMap } = await getAggregatedSchema();
+
+            const results: any[] = [];
+            const validatedPlugins = new Set<string>();
+
+            // Validate schemas
+            expectedSchemas.forEach(s => {
+                if (s !== 'dbo') {
+                    const exists = currentSchemasList.some(cs => cs.toLowerCase() === s.toLowerCase());
+                    results.push({
+                        tableName: `Schema: ${s}`,
+                        status: exists ? 'valid' : 'missing',
+                        issues: exists ? [] : [`Schema '${s}' does not exist.`]
+                    });
+
+                    if (exists) {
+                        const pluginId = schemaToPluginMap[s];
+                        if (pluginId) validatedPlugins.add(pluginId);
+                    }
+                }
+            });
+
+            // Validate tables
+            expectedTables.forEach(expected => {
+                const schema = expected.schema || 'dbo';
+                const key = `[${schema.toLowerCase()}].[${expected.name.toLowerCase()}]`;
+
+                const exists = !!currentTables[key];
+                let status: 'missing' | 'valid' | 'invalid' = 'missing';
+                const issues: string[] = [];
+
+                if (exists) {
+                    status = 'valid';
+                    const currentCols = currentTables[key];
+
+                    expected.columns.forEach(expectedCol => {
+                        const found = currentCols.find(c => c.name.toLowerCase() === expectedCol.name.toLowerCase());
+                        if (!found) {
+                            status = 'invalid';
+                            issues.push(`Missing column: ${expectedCol.name}`);
+                        }
+                    });
+                }
+
+                results.push({
+                    tableName: schema !== 'dbo' ? `${schema}.${expected.name}` : expected.name,
+                    status,
+                    issues
+                });
+            });
+
+            const hasIssues = results.some(r => r.status !== 'valid');
+
+            // Clear alerts for validated plugins
+            if (validatedPlugins.size > 0) {
+                const { SystemStatus } = await import('../../../src/core/system-status');
+
+                validatedPlugins.forEach(pluginId => {
+                    const schemaName = Object.keys(schemaToPluginMap).find(key => schemaToPluginMap[key] === pluginId);
+
+                    if (schemaName) {
+                        const pluginIssues = results.filter(r => {
+                            return r.tableName.includes(schemaName) && r.status !== 'valid';
+                        });
+
+                        if (pluginIssues.length === 0) {
+                            SystemStatus.update(pluginId, [
+                                { label: 'Database', value: 'Synced', severity: 'success' }
+                            ]);
+                        }
+                    }
+                });
+            }
+
+            api.events.emit('RESPONSE_VALIDATE_SCHEMA', {
+                success: true,
+                tables: results,
+                needsHealing: hasIssues
+            });
+        } catch (e: any) {
+            console.error('[DatabaseMSSQL] Schema validation failed:', e);
+            api.events.emit('RESPONSE_VALIDATE_SCHEMA', {
+                success: false,
+                error: e.message
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_FIX_SCHEMA
+    api.events.on('REQUEST_FIX_SCHEMA', async (payload: any) => {
+        try {
+            console.log('[DatabaseMSSQL] Applying schema fixes...');
+            const provider = new MssqlProvider(payload);
+
+            // Load aggregated schema requirements
+            const { getAggregatedSchema } = await import('../../../src/lib/schema/registry');
+            const { schemas, tables } = await getAggregatedSchema();
+
+            const results = [];
+
+            // Process each schema
+            for (const schemaName of schemas) {
+                if (schemaName === 'dbo') continue;
+
+                const schemaTables = tables.filter(t => t.schema === schemaName);
+                const requirement = { schema: schemaName, tables: schemaTables };
+
+                try {
+                    const synced = await provider.syncSchema(requirement, true);
+                    results.push({
+                        schema: schemaName,
+                        status: synced ? 'synced' : 'partial',
+                        message: synced ? 'Schema synchronized' : 'Partial sync completed'
+                    });
+                } catch (e: any) {
+                    results.push({
+                        schema: schemaName,
+                        status: 'error',
+                        message: e.message
+                    });
+                }
+            }
+
+            api.events.emit('RESPONSE_FIX_SCHEMA', {
+                success: true,
+                results: results
+            });
+        } catch (e: any) {
+            console.error('[DatabaseMSSQL] Schema fix failed:', e);
+            api.events.emit('RESPONSE_FIX_SCHEMA', {
+                success: false,
+                error: e.message
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_DB_STATUS
+    api.events.on('REQUEST_DB_STATUS', async (payload: any) => {
+        try {
+            console.log('[DatabaseMSSQL] Checking database status...');
+            const provider = new MssqlProvider(payload);
+            const exists = await provider.checkDatabaseExists();
+
+            api.events.emit('RESPONSE_DB_STATUS', {
+                success: true,
+                exists: exists
+            });
+        } catch (e: any) {
+            console.error('[DatabaseMSSQL] Status check failed:', e);
+            api.events.emit('RESPONSE_DB_STATUS', {
+                success: false,
+                error: e.message,
+                exists: false
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_DB_CREATE
+    api.events.on('REQUEST_DB_CREATE', async (payload: any) => {
+        try {
+            console.log('[DatabaseMSSQL] Creating database:', payload.database);
+            const provider = new MssqlProvider(payload);
+
+            // Connect to master to create database
+            const masterConfig = { ...payload, database: 'master' };
+            const masterProvider = new MssqlProvider(masterConfig);
+            await masterProvider.connect();
+
+            await masterProvider.query(`CREATE DATABASE [${payload.database}]`);
+            await masterProvider.disconnect();
+
+            api.events.emit('RESPONSE_DB_CREATE', {
+                success: true,
+                message: `Database '${payload.database}' created successfully`
+            });
+        } catch (e: any) {
+            console.error('[DatabaseMSSQL] Database creation failed:', e);
+            api.events.emit('RESPONSE_DB_CREATE', {
+                success: false,
+                error: e.message
+            });
+        }
+    });
+
+    console.log('[DatabaseMSSQL] Plugin initialized with Event Hub support');
+};

@@ -92,6 +92,22 @@
             "nullable": false
           }
         ]
+      },
+      {
+        "name": "Settings",
+        "columns": [
+          {
+            "name": "SettingKey",
+            "type": "NVARCHAR(100)",
+            "nullable": false,
+            "primaryKey": true
+          },
+          {
+            "name": "SettingValue",
+            "type": "NVARCHAR(MAX)",
+            "nullable": true
+          }
+        ]
       }
     ]
   }

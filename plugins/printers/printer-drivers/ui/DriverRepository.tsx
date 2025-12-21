@@ -26,6 +26,7 @@ export default function DriverRepository() {
     const [error, setError] = useState<string | null>(null);
     const [downloading, setDownloading] = useState<string | null>(null);
     const [driverToDelete, setDriverToDelete] = useState<{ id: string, name: string } | null>(null);
+    const [driverWithMissingFile, setDriverWithMissingFile] = useState<{ id: string, name: string } | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [driverToEdit, setDriverToEdit] = useState<PrinterDriver | null>(null);
@@ -40,15 +41,29 @@ export default function DriverRepository() {
         setDrivers(prev => prev.map(d => d.id === updatedDriver.id ? updatedDriver : d));
 
         try {
-            const response = await fetch(`/api/drivers/${updatedDriver.id}`, {
-                method: 'PUT',
+            console.log('[UI] Updating driver:', updatedDriver);
+
+            const response = await fetch('/api/system/command', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatedDriver)
+                body: JSON.stringify({
+                    event: 'REQUEST_UPDATE_DRIVER',
+                    pluginId: 'printer-drivers',
+                    data: {
+                        id: updatedDriver.id,
+                        metadata: {
+                            displayName: updatedDriver.name,
+                            version: updatedDriver.version,
+                            vendor: updatedDriver.vendor
+                        }
+                    }
+                })
             });
 
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Failed to update driver');
+            const result = await response.json();
+
+            if (!result.success) {
+                throw new Error(result.error || 'Update failed');
             }
 
             toast.success(`Driver ${updatedDriver.name} saved successfully`);
@@ -104,33 +119,54 @@ export default function DriverRepository() {
 
     // ... imports
 
-    const handleDownload = (driverId: string, driverName?: string) => {
+    const handleDownload = async (driverId: string, driverName?: string) => {
         setDownloading(driverId);
         console.log(`Downloading ${driverId}...`);
 
         try {
-            // Trigger download via API (Hidden Link Method)
-            const link = document.createElement('a');
+            // Use Event Hub pattern
+            const response = await fetch('/api/system/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'REQUEST_DOWNLOAD_DRIVER',
+                    pluginId: 'printer-drivers',
+                    data: {
+                        id: driverId,
+                        filename: driverName ? `${driverName}.zip` : `${driverId}.zip`
+                    }
+                })
+            });
 
-            // Build URL with optional name param for custom filename
-            let url = `/api/drivers/${driverId}/download`;
-            if (driverName) {
-                url += `?name=${encodeURIComponent(driverName)}`;
+            const result = await response.json();
+
+            if (!result.success) {
+                throw new Error(result.error || 'Download failed');
             }
 
-            link.href = url;
-            // The download attribute is just a hint; the Content-Disposition header from API takes precedence usually,
-            // but we'll include a fallback.
-            link.download = driverName ? `${driverName}.zip` : `${driverId}_extracted.zip`;
+            // Decode base64 to binary
+            const binaryString = atob(result.buffer);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
 
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        } catch (e) {
-            console.error("Download trigger failed", e);
-            alert("Failed to start download.");
+            // Create blob and trigger download
+            const blob = new Blob([bytes], { type: 'application/zip' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = result.filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            toast.success('Driver downloaded successfully');
+        } catch (e: any) {
+            console.error("Download failed", e);
+            toast.error(`Download failed: ${e.message}`);
         } finally {
-            // Reset state after a brief delay to allow animation to show
             setTimeout(() => setDownloading(null), 1000);
         }
     };
@@ -139,11 +175,14 @@ export default function DriverRepository() {
         setDriverToDelete({ id: driverId, name: driverName });
     };
 
-    const executeDelete = async () => {
+    const executeDelete = async (forceDbOnly: boolean = false) => {
         if (!driverToDelete) return;
         const driverId = driverToDelete.id;
+        const driverName = driverToDelete.name;
 
-        // Optimistically close modal
+        console.log('[DriverRepository] Deleting driver:', { driverId, driverName, forceDbOnly });
+
+        // Close modal
         setDriverToDelete(null);
 
         try {
@@ -153,7 +192,10 @@ export default function DriverRepository() {
                 body: JSON.stringify({
                     event: 'REQUEST_DELETE_DRIVER',
                     pluginId: 'printer-drivers',
-                    data: { id: driverId }
+                    data: {
+                        id: driverId,
+                        forceDbOnly
+                    }
                 })
             });
 
@@ -163,14 +205,24 @@ export default function DriverRepository() {
 
             const result = await response.json();
 
+            // Handle file missing scenario
+            if (!result.success && result.fileMissing) {
+                // Show custom modal instead of browser confirm
+                setDriverWithMissingFile({ id: driverId, name: driverName });
+                return;
+            }
+
             if (!result.success) {
                 throw new Error(result.error || 'Delete failed');
             }
 
-            if (result.fileDeleted === false) {
-                toast.warning('Driver entry removed, but the repository file was preserved because it is shared by another driver.');
+            // Show appropriate success message
+            if (result.fileMissing) {
+                toast.warning(`Driver "${driverName}" removed from repository. Physical file was missing.`);
+            } else if (result.fileDeleted === false) {
+                toast.warning(`Driver "${driverName}" removed, but the file was preserved (shared by another driver).`);
             } else {
-                toast.success('Driver deleted successfully');
+                toast.success(`Driver "${driverName}" deleted successfully`);
             }
 
             // Refresh list
@@ -181,15 +233,39 @@ export default function DriverRepository() {
         }
     };
 
+    // Helper function to execute force delete
+    const executeDeleteForce = async (driverId: string, driverName: string) => {
+        try {
+            const response = await fetch('/api/system/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'REQUEST_DELETE_DRIVER',
+                    pluginId: 'printer-drivers',
+                    data: {
+                        id: driverId,
+                        forceDbOnly: true
+                    }
+                })
+            });
+
+            const result = await response.json();
+
+            if (!result.success) {
+                throw new Error(result.error || 'Force delete failed');
+            }
+
+            toast.warning(`Driver "${driverName}" removed from repository. Physical file was missing.`);
+            fetchDrivers();
+        } catch (error: any) {
+            console.error('Force delete failed:', error);
+            toast.error(error.message || 'Failed to force delete driver');
+        }
+    };
+
     const handleAddDriver = (newDriver: any) => {
-        // Optimistic UI update
-        const driver: PrinterDriver = {
-            id: `local - ${Date.now()}`,
-            name: newDriver.name,
-            version: newDriver.version,
-            os: newDriver.os
-        };
-        setDrivers([driver, ...drivers]);
+        // Refresh the list to show the new driver with correct database ID
+        fetchDrivers();
     };
 
     const normalizeVendor = (vendor: string) => {
@@ -365,14 +441,26 @@ export default function DriverRepository() {
                 onClose={() => setDriverToDelete(null)}
                 onConfirm={executeDelete}
                 title="Delete Driver"
-                description={
-                    <span>
-                        Are you sure you want to delete <span className="font-bold text-white">{driverToDelete?.name}</span>?
-                        <br />
-                        This action cannot be undone.
-                    </span>
-                }
+                description={`Are you sure you want to delete ${driverToDelete?.name}? This action cannot be undone.`}
                 confirmLabel="Yes, Delete Driver"
+                variant="destructive"
+            />
+
+            <ConfirmationModal
+                isOpen={!!driverWithMissingFile}
+                onClose={() => {
+                    setDriverWithMissingFile(null);
+                    toast.info('Delete cancelled - driver entry preserved');
+                }}
+                onConfirm={() => {
+                    if (driverWithMissingFile) {
+                        executeDeleteForce(driverWithMissingFile.id, driverWithMissingFile.name);
+                        setDriverWithMissingFile(null);
+                    }
+                }}
+                title="Driver File Missing"
+                description={`The driver package file for "${driverWithMissingFile?.name}" is missing from storage. The database entry can still be removed, but the physical driver file cannot be deleted. Do you want to remove the driver entry from the repository anyway?`}
+                confirmLabel="Yes, Remove Entry"
                 variant="destructive"
             />
 

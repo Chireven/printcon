@@ -17,9 +17,10 @@ import {
     AlertCircle,
     Construction,
     Table,
-    FolderTree
-
+    FolderTree,
+    X
 } from 'lucide-react';
+import { Button } from '../../../../src/components/ui/Button';
 
 // Types for better type safety
 type LogonType = 'windows' | 'sql';
@@ -473,22 +474,27 @@ export default function MssqlSettings({ initialAction }: MssqlSettingsProps) {
                                     <h3 className="text-xs font-bold text-white mb-1">Connection & Configuration</h3>
                                     <p className="text-[10px] text-slate-500 mb-2">Save settings and verify connection to server.</p>
                                     <div className="grid grid-cols-2 gap-3">
-                                        <button
+                                        <Button
                                             onClick={handleSave}
                                             disabled={status === 'testing'}
-                                            className="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-md transition-all shadow-lg shadow-sky-900/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                                            variant="primary"
+                                            size="sm"
+                                            icon={Save}
+                                            className="w-full"
                                         >
-                                            <Save className="w-3 h-3" />
                                             Save
-                                        </button>
-                                        <button
+                                        </Button>
+                                        <Button
                                             onClick={handleTest}
                                             disabled={status === 'testing'}
-                                            className="w-full py-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded-md text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                                            variant="secondary"
+                                            size="sm"
+                                            icon={Play}
+                                            loading={status === 'testing'}
+                                            className="w-full"
                                         >
-                                            {status === 'testing' ? <div className="w-3 h-3 border-2 border-slate-500 border-t-white rounded-full animate-spin" /> : <Play className="w-3 h-3" />}
                                             Test
-                                        </button>
+                                        </Button>
                                     </div>
                                 </div>
                                 <div className="h-px bg-slate-800 w-full" />
@@ -496,13 +502,16 @@ export default function MssqlSettings({ initialAction }: MssqlSettingsProps) {
                                 <div>
                                     <h3 className="text-xs font-bold text-white mb-1">Create Database</h3>
                                     <p className="text-[10px] text-slate-500 mb-2">Initialize a new blank database with the configured name.</p>
-                                    <button
+                                    <Button
                                         onClick={handleCreate}
                                         disabled={!isSaved || databaseExists === true || status !== 'success'}
-                                        className="w-full py-2 bg-slate-950 hover:bg-sky-900/30 text-slate-400 hover:text-sky-400 border border-slate-800 hover:border-sky-500/50 rounded-md text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                                        variant="primary"
+                                        size="sm"
+                                        icon={Database}
+                                        className="w-full"
                                     >
                                         Create Database
-                                    </button>
+                                    </Button>
                                     {databaseExists === false && status === 'success' && (
                                         <p className="text-[10px] text-amber-400 mt-1">Database does not exist. Click to create.</p>
                                     )}
@@ -511,13 +520,16 @@ export default function MssqlSettings({ initialAction }: MssqlSettingsProps) {
                                 <div>
                                     <h3 className="text-xs font-bold text-white mb-1">Test Database Schema</h3>
                                     <p className="text-[10px] text-slate-500 mb-2">Validate tables and columns against expected schema.</p>
-                                    <button
+                                    <Button
                                         onClick={() => setShowSchemaModal(true)}
                                         disabled={!isSaved || status === 'failure'}
-                                        className="w-full py-2 bg-slate-950 hover:bg-emerald-900/30 text-slate-400 hover:text-emerald-400 border border-slate-800 hover:border-emerald-500/50 rounded-md text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                                        variant="success"
+                                        size="sm"
+                                        icon={Table}
+                                        className="w-full"
                                     >
                                         Test Database Schema
-                                    </button>
+                                    </Button>
                                 </div>
                             </div>
                         </div>
@@ -531,23 +543,16 @@ export default function MssqlSettings({ initialAction }: MssqlSettingsProps) {
                     <div className="bg-slate-900 rounded-xl border border-slate-800 w-full max-w-2xl shadow-2xl">
                         {/* Modal Header */}
                         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-                            <button
+                            <Button
                                 onClick={handleTestSchema}
                                 disabled={schemaStatus !== 'idle'}
-                                className="px-4 py-2 bg-sky-500/10 hover:bg-sky-500/20 text-sky-500 border border-sky-500 text-xs font-bold rounded-lg transition-all disabled:opacity-50 flex items-center gap-2"
+                                variant="primary"
+                                size="sm"
+                                icon={Play}
+                                loading={schemaStatus === 'testing'}
                             >
-                                {schemaStatus === 'testing' ? (
-                                    <>
-                                        <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                        Testing...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Play className="w-3 h-3" />
-                                        Test Schema
-                                    </>
-                                )}
-                            </button>
+                                {schemaStatus === 'testing' ? 'Testing...' : 'Test Schema'}
+                            </Button>
 
                             <div className="flex items-center gap-4">
                                 {/* Overall Status Indicator */}
@@ -560,9 +565,9 @@ export default function MssqlSettings({ initialAction }: MssqlSettingsProps) {
 
                                 <button
                                     onClick={() => setShowSchemaModal(false)}
-                                    className="text-slate-400 hover:text-white transition-colors"
+                                    className="text-slate-400 hover:text-white transition-colors p-1"
                                 >
-                                    ✕
+                                    <X className="w-4 h-4" />
                                 </button>
                             </div>
                         </div>
@@ -604,23 +609,16 @@ export default function MssqlSettings({ initialAction }: MssqlSettingsProps) {
                             {/* Fix Actions */}
                             {schemaResults.some(r => (r.status === 'invalid' || r.status === 'missing')) && (
                                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 mt-4">
-                                    <button
+                                    <Button
                                         onClick={handleFixSchema}
                                         disabled={schemaStatus === 'fixing'}
-                                        className="px-6 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500 text-xs font-bold rounded-lg transition-all shadow-xl shadow-amber-900/20 flex items-center gap-2"
+                                        variant="warning"
+                                        size="sm"
+                                        icon={Construction}
+                                        loading={schemaStatus === 'fixing'}
                                     >
-                                        {schemaStatus === 'fixing' ? (
-                                            <>
-                                                <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                                Running Fix Scripts...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Construction className="w-3 h-3" />
-                                                Fix Schema Issues
-                                            </>
-                                        )}
-                                    </button>
+                                        {schemaStatus === 'fixing' ? 'Running Fix Scripts...' : 'Fix Schema Issues'}
+                                    </Button>
                                 </div>
                             )}
                         </div>

@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
-import { X, Plus, Lock } from 'lucide-react';
+import { X, Plus, Lock, Settings, Calendar, Unlock } from 'lucide-react';
 import { useAuth } from '../../providers/MockAuthProvider';
 import { PluginInstallModal } from '../ui/PluginInstallModal';
 import { PluginConfigContainer } from './PluginConfigContainer';
 import SystemTasksView from './SystemTasksView';
+import { Button } from '../ui/Button';
 
 interface PluginEntry {
     id: string;
@@ -100,12 +101,24 @@ export default function SystemSettingsModal({ isOpen, onClose, plugins }: System
                     <div className="w-64 bg-slate-900/50 border-r border-slate-800 p-4 overflow-y-auto custom-scrollbar">
                         <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 px-2">System</h2>
                         <div className="space-y-1 mb-6">
-                            <button onClick={() => setActiveTab('general')} className={`w-full text-left px-3 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'general' ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                            <Button
+                                onClick={() => setActiveTab('general')}
+                                variant={activeTab === 'general' ? 'primary' : 'secondary'}
+                                size="sm"
+                                icon={Settings}
+                                className="w-full justify-start"
+                            >
                                 General Settings
-                            </button>
-                            <button onClick={() => setActiveTab('system-tasks')} className={`w-full text-left px-3 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'system-tasks' ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+                            </Button>
+                            <Button
+                                onClick={() => setActiveTab('system-tasks')}
+                                variant={activeTab === 'system-tasks' ? 'primary' : 'secondary'}
+                                size="sm"
+                                icon={Calendar}
+                                className="w-full justify-start"
+                            >
                                 System Tasks
-                            </button>
+                            </Button>
                         </div>
 
 
@@ -118,10 +131,19 @@ export default function SystemSettingsModal({ isOpen, onClose, plugins }: System
                                             <button
                                                 key={p.id}
                                                 onClick={() => setActiveTab(p.id)}
-                                                className={`w-full text-left px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-all ${activeTab === p.id ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+                                                className={`w-full text-left px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-2 transition-all border ${activeTab === p.id
+                                                    ? 'bg-transparent border-sky-500 text-sky-500'
+                                                    : 'bg-transparent border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200 hover:border-slate-600'
+                                                    }`}
                                             >
-                                                <div className={`w-2 h-2 rounded-full mr-2 ${p.active !== false ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-700'}`}></div>
-                                                <span className={activeTab === p.id ? 'text-white' : ''}>{p.name}</span>
+                                                <div className={`w-2 h-2 rounded-full ${p.active !== false ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-700'}`}></div>
+                                                <span className={activeTab === p.id ? 'text-sky-500' : ''}>{p.name}</span>
+                                                {p.locked && (
+                                                    <Lock className="w-3 h-3 ml-auto opacity-60" />
+                                                )}
+                                                {!p.locked && (
+                                                    <Unlock className="w-3 h-3 ml-auto opacity-40" />
+                                                )}
                                             </button>
                                         ))}
                                     </div>
@@ -149,7 +171,7 @@ export default function SystemSettingsModal({ isOpen, onClose, plugins }: System
                                             className={`
                                                 flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all border shadow-sm
                                                 ${hasPermission('plugin.install')
-                                                    ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700 hover:border-slate-600'
+                                                    ? 'bg-transparent border-sky-500 text-sky-500 hover:bg-sky-500/10'
                                                     : 'bg-slate-900/50 border-slate-800 text-slate-600 cursor-not-allowed opacity-50'
                                                 }
                                             `}

@@ -48,6 +48,14 @@ export interface IStorageProvider {
     list(prefix: string): Promise<string[]>;
 
     /**
+     * Deletes an empty directory from storage.
+     * 
+     * @param relativePath - Relative path within the storage (e.g., "12/")
+     * @returns Promise that resolves when deletion is complete
+     */
+    deleteDirectory(relativePath: string): Promise<void>;
+
+    /**
      * Gets the total number of files in storage.
      * Used for capacity monitoring.
      * 

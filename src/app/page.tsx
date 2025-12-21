@@ -45,6 +45,7 @@ import { PluginInstallModal } from '../components/ui/PluginInstallModal';
 import { PluginUnlockModal } from '../components/ui/PluginUnlockModal';
 import SystemSettingsModal from '../components/settings/SystemSettingsModal';
 import { PluginConfigContainer } from '../components/settings/PluginConfigContainer';
+import { Button } from '../components/ui/Button';
 
 // --- Type Definitions ---
 interface PluginEntry {
@@ -298,14 +299,20 @@ const PrintersView = () => {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <button className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 text-slate-300 border border-slate-700 font-bold text-sm hover:bg-slate-700 transition-all shadow-sm">
-                        <RefreshCw className="w-4 h-4" />
+                    <Button
+                        variant="secondary"
+                        size="md"
+                        icon={RefreshCw}
+                    >
                         Refresh
-                    </button>
-                    <button className="bg-sky-500 text-slate-900 px-6 py-2.5 rounded-xl font-black text-sm hover:bg-sky-400 transition-all shadow-lg shadow-sky-500/20 flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
+                    </Button>
+                    <Button
+                        variant="primary"
+                        size="md"
+                        icon={Plus}
+                    >
                         Add Printer
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -466,6 +473,13 @@ function DashboardContent() {
 
         const handlePayload = (payload: any) => {
             const { event, data } = payload;
+
+            // Skip operational Event Hub messages (REQUEST_/RESPONSE_ pattern)
+            // These are internal plugin communications, not lifecycle events
+            if (event.startsWith('REQUEST_') || event.startsWith('RESPONSE_')) {
+                return;
+            }
+
             const timestamp = new Date().toLocaleTimeString();
             const config = {
                 description: `Plugin: ${data?.pluginId || 'unknown'} • ${timestamp}`,

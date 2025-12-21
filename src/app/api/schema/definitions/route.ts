@@ -1,39 +1,37 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getAggregatedSchema } from '../../../../lib/schema/registry';
 
-export const dynamic = 'force-dynamic';
-
-export async function GET() {
+/**
+ * GET /api/schema/definitions
+ * Returns all schema definitions from core + plugins
+ */
+export async function GET(req: NextRequest) {
     try {
-        const { tables, schemas } = await getAggregatedSchema();
+        const { tables, schemas, schemaToPluginMap } = await getAggregatedSchema();
 
-        const definitions: any[] = [];
-
-        // Add Expected Schemas (excluding dbo)
-        schemas.forEach(s => {
-            if (s !== 'dbo') {
-                definitions.push({
-                    tableName: `Schema: ${s}`,
-                    status: 'idle',
-                    issues: []
-                });
-            }
-        });
-
-        // Add Tables
-        tables.forEach(def => {
-            definitions.push({
-                tableName: def.schema && def.schema !== 'dbo' ? `${def.schema}.${def.name}` : def.name,
-                status: 'idle', // Initial status
-                issues: []
-            });
-        });
+        // Format for UI consumption - match validate route format
+        const definitions = [
+            // Add schema badges first
+            ...schemas.map(schemaName => ({
+                tableName: `Schema: ${schemaName}`,
+                status: 'idle'
+            })),
+            // Then add tables with fully qualified names (schema.table)
+            ...tables.map(table => {
+                const schemaName = table.schema || 'dbo';
+                return {
+                    tableName: `${schemaName}.${table.name}`,
+                    status: 'idle'
+                };
+            })
+        ];
 
         return NextResponse.json({
             status: 'success',
             definitions
         });
     } catch (error: any) {
+        console.error('[API] Schema definitions error:', error);
         return NextResponse.json({
             status: 'error',
             message: error.message

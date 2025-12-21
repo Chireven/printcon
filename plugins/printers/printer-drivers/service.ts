@@ -47,59 +47,36 @@ export class PrinterService {
     /**
      * Initializes the service with PluginAPI.
      * Called during plugin initialization.
-     * This is optional - service can work without it by accessing StorageBroker directly.
+     * 
+     * @param api - PluginAPI instance
+     * @required This MUST be called before using any service methods
      */
     static initialize(api: PluginAPI): void {
         this.api = api;
     }
 
     /**
-     * Gets storage interface - either from PluginAPI or directly from StorageBroker.
-     * This allows the service to work in both plugin and API route contexts.
+     * Gets storage interface from PluginAPI.
+     * 
+     * @throws Error if service not initialized with PluginAPI
      */
     private static async getStorage() {
-        if (this.api) {
-            // Use PluginAPI if available (plugin context)
-            return this.api.storage;
-        } else {
-            // Fall back to direct StorageBroker access (API route context)
-            const { StorageBroker } = await import('../../../src/core/storage-broker');
-            const storageConfig = await import('../../../src/config/storage.json'); // Re-use core config
-
-            // Ensure initialized (safe now that it's idempotent)
-            // Fix: pass 'default' if it exists (module import) and waitForDynamic=true
-            const config = (storageConfig as any).default || storageConfig;
-            await StorageBroker.initialize(config, true);
-
-            return {
-                write: (path: string, buffer: Buffer) => StorageBroker.write(path, buffer),
-                read: (path: string) => StorageBroker.read(path),
-                exists: (path: string) => StorageBroker.exists(path),
-                delete: (path: string) => StorageBroker.delete(path),
-                list: (prefix: string) => StorageBroker.list(prefix)
-            };
+        if (!this.api) {
+            throw new Error('PrinterService must be initialized with PluginAPI. Use PrinterService.initialize(api) during plugin initialization.');
         }
+        return this.api.storage;
     }
 
     /**
      * Helper to access Database securely.
+     * 
+     * @throws Error if service not initialized with PluginAPI
      */
     private static async getDB() {
-        if (this.api) {
-            return this.api.database;
-        } else {
-            // Fallback for API routes (Admin context)
-            const { DatabaseBroker } = await import('../../../src/core/database-broker');
-            const dbConfig = await import('../../../src/config/database.json');
-
-            await DatabaseBroker.initialize(dbConfig as any);
-
-            // Return Adapter compatible with PluginAPI.database
-            return {
-                query: <T>(sql: string, params?: any) =>
-                    DatabaseBroker.query<T>('printer-drivers', sql, params)
-            };
+        if (!this.api) {
+            throw new Error('PrinterService must be initialized with PluginAPI. Use PrinterService.initialize(api) during plugin initialization.');
         }
+        return this.api.database;
     }
 
     /**
@@ -193,20 +170,34 @@ export class PrinterService {
      * @param fileBuffer - The .pd package file buffer
      * @param originalName - Original filename (e.g., "driver.pd")
      * @param user - Username performing the upload
+     * @param contentHash - SHA256 hash of file contents (for deduplication)
      * @returns Object containing package ID and parsed manifest
      */
     public static async savePackage(
         fileBuffer: Buffer,
         originalName: string,
-        user: string
+        user: string,
+        contentHash: string
     ): Promise<{ id: number; manifest: PDManifestSchema }> {
         // 1. Extract and validate manifest from .pd package
         const manifest = this.extractAndValidateManifest(fileBuffer);
 
-        // 2. Calculate SHA256 hash for deduplication
-        const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        // 2. Use provided content hash for deduplication (ignores ZIP metadata like timestamps)
+        const hash = contentHash;
 
-        // 3. Check if package already exists (deduplication)
+        // 3. Check for duplicate display name (warn user about name collision)
+        const nameCheckQuery = `
+            SELECT Id, DisplayName 
+            FROM [plg_printer_drivers].Packages 
+            WHERE DisplayName = @displayName
+        `;
+        const nameCheck = await (await this.getDB()).query<{ Id: number, DisplayName: string }>(nameCheckQuery, {
+            displayName: manifest.driverMetadata.displayName
+        });
+
+        const isDuplicateName = nameCheck.length > 0;
+
+        // 4. Check if package already exists by hash (deduplication)
         const existingQuery = `
             SELECT Id 
             FROM [plg_printer_drivers].Packages 
@@ -218,11 +209,14 @@ export class PrinterService {
         });
 
         if (existingResult.length > 0) {
-            // Package already exists, return existing ID with manifest
-            return { id: existingResult[0].Id, manifest };
+            // Package already exists, return existing ID with manifest and duplicate name flag
+            return {
+                id: existingResult[0].Id,
+                manifest,
+                isDuplicateName
+            };
         }
 
-        // 4. Write file to storage using sharded path
         // 4. Write file to storage using sharded path
         const storage = await this.getStorage();
 
@@ -273,7 +267,11 @@ export class PrinterService {
         // 6. Populate SupportedModels from manifest
         await this.populateModels(packageDbId, manifest.hardwareSupport);
 
-        return { id: packageDbId, manifest };
+        return {
+            id: packageDbId,
+            manifest,
+            isDuplicateName
+        };
     }
 
     /**
@@ -346,21 +344,29 @@ export class PrinterService {
     /**
      * Deletes a driver package and its associated data.
      * 
-     * @param packageGuid - The public PackageId (GUID)
-     * @returns Object indicating success and whether the physical file was removed
+     * @param packageIdOrDbId - The public PackageId (UUID) or database ID (numeric string)
+     * @param forceDbOnly - If true, only delete database record even if file is missing
+     * @returns Object indicating success, whether the physical file was removed, and if file was missing
      * @throws Error if package is in use or not found
      */
-    public static async deletePackage(packageGuid: string): Promise<{ success: boolean, fileDeleted: boolean }> {
+    public static async deletePackage(packageIdOrDbId: string, forceDbOnly: boolean = false): Promise<{ success: boolean, fileDeleted: boolean, fileMissing?: boolean }> {
         const db = await this.getDB();
         const storage = await this.getStorage();
 
-        // 1. Get Internal ID and Hash
-        const lookupQuery = `
-            SELECT Id, StorageHash 
-            FROM [plg_printer_drivers].Packages 
-            WHERE PackageId = @packageGuid
-        `;
-        const lookup = await db.query<{ Id: number, StorageHash: string }>(lookupQuery, { packageGuid });
+        // 1. Get Internal ID and Hash - support both PackageId (UUID) and database Id (numeric)
+        const isNumeric = /^\d+$/.test(packageIdOrDbId);
+        let lookupQuery: string;
+        let lookupParams: any;
+
+        if (isNumeric) {
+            lookupQuery = `SELECT Id, StorageHash FROM [plg_printer_drivers].Packages WHERE Id = @id`;
+            lookupParams = { id: parseInt(packageIdOrDbId) };
+        } else {
+            lookupQuery = `SELECT Id, StorageHash FROM [plg_printer_drivers].Packages WHERE PackageId = @packageGuid`;
+            lookupParams = { packageGuid: packageIdOrDbId };
+        }
+
+        const lookup = await db.query<{ Id: number, StorageHash: string }>(lookupQuery, lookupParams);
 
         if (lookup.length === 0) {
             throw new Error('Package not found');
@@ -368,46 +374,158 @@ export class PrinterService {
 
         const { Id: internalId, StorageHash: hash } = lookup[0];
 
-        // 2. Delete from Database (Transaction-like via order)
-        // Note: If this fails due to FK constraint (e.g. used by Printers), it throws and aborts.
+        // 2. Check Reference Count FIRST (Is file used by another package?)
+        const refCheckQuery = `
+            SELECT Count(Id) as Count 
+            FROM [plg_printer_drivers].Packages 
+            WHERE StorageHash = @hash
+        `;
+        const refResult = await db.query<any>(refCheckQuery, { hash });
+        const refCount = refResult[0]?.Count || 0;
 
+        let fileDeleted = false;
+        let fileMissing = false;
+
+        // 3. Check if file exists and handle accordingly (BEFORE deleting DB records)
+        if (refCount === 1) {
+            // This is the only package using this file
+            const hashLower = hash.toLowerCase();
+            const shard1 = hashLower.substring(0, 2);
+            const relativePath = `${shard1}/${hashLower}.pd`;
+
+            const fileExists = await storage.exists(relativePath);
+
+            if (!fileExists) {
+                console.warn(`[PrinterService] File ${relativePath} does not exist in storage`);
+                fileMissing = true;
+
+                if (!forceDbOnly) {
+                    // File is missing, throw error so UI can prompt user
+                    // DON'T delete database yet - let user decide
+                    throw new Error('DRIVER_FILE_MISSING');
+                }
+                // If forceDbOnly is true, continue with DB deletion
+            } else {
+                // File exists, safe to delete it after DB cleanup
+                fileDeleted = true;
+            }
+        }
+
+        // 4. Delete from Database (only after confirming file handling is OK)
         // A. Remove Supported Models
         await db.query('DELETE FROM [plg_printer_drivers].SupportedModels WHERE PackageId = @internalId', { internalId });
 
         // B. Remove Package Record
         await db.query('DELETE FROM [plg_printer_drivers].Packages WHERE Id = @internalId', { internalId });
 
-        // 3. Check Reference Count (Is file used by another package?)
-        // Note: Even though current save logic deduplicates, we support N:1 here for safety/future-proofing.
-        const refCheckQuery = `
-            SELECT Count(Id) as Count 
-            FROM [plg_printer_drivers].Packages 
-            WHERE StorageHash = @hash
-        `;
-        // Use generic 'any' or specific interface since count returns might vary by driver
-        const refResult = await db.query<any>(refCheckQuery, { hash });
-        // Start counting safe
-        const refCount = refResult[0]?.Count || 0;
-
-        let fileDeleted = false;
-
-        if (refCount === 0) {
-            // 4. Safe to Delete File from Storage
+        // 5. Delete file if we marked it for deletion
+        if (fileDeleted) {
             const hashLower = hash.toLowerCase();
             const shard1 = hashLower.substring(0, 2);
             const relativePath = `${shard1}/${hashLower}.pd`;
 
             try {
                 await storage.delete(relativePath);
-                fileDeleted = true;
+
+                // Auto-cleanup empty shard folder if enabled
+                console.log(`[PrinterService] Attempting auto-cleanup for shard folder: ${shard1}`);
+                if (forceDbOnly === false) { // Only cleanup on normal deletes, not force deletes
+                    await this.cleanupEmptyShardFolder(storage, shard1);
+                }
             } catch (e) {
-                console.warn(`[PrinterService] Failed to delete file ${relativePath}, ignoring as DB is clean.`, e);
+                console.warn(`[PrinterService] Failed to delete file ${relativePath}`, e);
+                // File delete failed, but DB is clean - log and continue
             }
-        } else {
+        } else if (refCount > 1) {
             console.log(`[PrinterService] File for hash ${hash} preserved (Ref Count: ${refCount})`);
         }
 
-        return { success: true, fileDeleted };
+        return { success: true, fileDeleted, fileMissing };
+    }
+
+    /**
+     * Cleans up empty shard folder after file deletion (if auto-cleanup is enabled).
+     * SAFETY: Never attempts to remove root folder, only shard subfolders.
+     * 
+     * @param storage - Storage interface
+     * @param shardFolder - Shard folder name (e.g., "db")
+     */
+    private static async cleanupEmptyShardFolder(storage: any, shardFolder: string): Promise<void> {
+        console.log(`[cleanupEmptyShardFolder] ENTRY - shard: ${shardFolder}`);
+        try {
+            // Get settings to check if auto-cleanup is enabled
+            console.log(`[cleanupEmptyShardFolder] Fetching settings...`);
+            const settings = await this.getSettings();
+            console.log(`[cleanupEmptyShardFolder] Settings:`, settings);
+
+            if (!settings.autoCleanupFolders) {
+                console.log(`[cleanupEmptyShardFolder] Auto-cleanup disabled, exiting`);
+                return; // Feature disabled
+            }
+
+            // SAFETY CHECK: Never attempt to remove root or invalid paths
+            if (!shardFolder || shardFolder.length !== 2 || shardFolder.includes('/') || shardFolder.includes('\\')) {
+                console.warn(`[PrinterService] Invalid shard folder for cleanup: ${shardFolder}`);
+                return;
+            }
+
+            // Check if folder exists and get its contents
+            const folderPath = `${shardFolder}/`;
+            console.log(`[cleanupEmptyShardFolder] Checking if folder exists: ${folderPath}`);
+            const exists = await storage.exists(folderPath);
+            console.log(`[cleanupEmptyShardFolder] Folder exists:`, exists);
+
+            if (!exists) {
+                console.log(`[cleanupEmptyShardFolder] Folder doesn't exist, exiting`);
+                return; // Folder already doesn't exist
+            }
+
+            // List files in the shard folder
+            console.log(`[cleanupEmptyShardFolder] Listing files in: ${folderPath}`);
+            const files = await storage.list(folderPath);
+            console.log(`[cleanupEmptyShardFolder] Files found:`, files);
+
+            // If folder is empty, remove it
+            if (files.length === 0) {
+                console.log(`[cleanupEmptyShardFolder] Folder is empty, deleting...`);
+                await storage.deleteDirectory(folderPath);
+                console.log(`[PrinterService] Cleaned up empty shard folder: ${shardFolder}/`);
+            } else {
+                console.log(`[cleanupEmptyShardFolder] Folder not empty (${files.length} files), keeping it`);
+            }
+        } catch (e) {
+            // Non-critical error - log and continue
+            console.error(`[cleanupEmptyShardFolder] ERROR:`, e);
+            console.warn(`[PrinterService] Failed to cleanup shard folder ${shardFolder}:`, e);
+        }
+    }
+
+    /**
+     * Retrieves plugin settings from database.
+     */
+    private static async getSettings(): Promise<{ autoUpload: boolean, autoCleanupFolders: boolean }> {
+        // Default settings
+        const defaults = { autoUpload: false, autoCleanupFolders: true };
+
+        try {
+            const db = await this.getDB();
+            const query = `SELECT SettingKey, SettingValue FROM [plg_printer_drivers].Settings`;
+            const results = await db.query<{ SettingKey: string, SettingValue: string }>(query);
+
+            const settings = { ...defaults };
+            results.forEach(row => {
+                if (row.SettingKey === 'autoUpload') {
+                    settings.autoUpload = row.SettingValue === 'true';
+                } else if (row.SettingKey === 'autoCleanupFolders') {
+                    settings.autoCleanupFolders = row.SettingValue === 'true';
+                }
+            });
+
+            return settings;
+        } catch (e) {
+            console.warn('[PrinterService] Failed to load settings, using defaults:', e);
+            return defaults;
+        }
     }
 
     /**

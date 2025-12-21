@@ -1,100 +1,91 @@
-import { NextResponse } from 'next/server';
-import { MssqlProvider } from '../../../../../plugins/databaseProviders/database-mssql';
+import { NextRequest, NextResponse } from 'next/server';
 import { getAggregatedSchema } from '../../../../lib/schema/registry';
-import { TableDefinition } from '../../../../lib/schema/definitions';
+import sql from 'mssql';
 
-export const dynamic = 'force-dynamic';
-
-function generateCreateTableSQL(table: TableDefinition): string {
-    const schema = table.schema || 'dbo';
-    const tableName = `[${schema}].[${table.name}]`;
-
-    const columnDefs = table.columns.map(col => {
-        let def = `[${col.name}] ${col.type}`;
-        if (col.identity) def += ' IDENTITY(1,1)';
-        if (!col.nullable) def += ' NOT NULL';
-        if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
-        if (col.primaryKey) def += ' PRIMARY KEY';
-        return def;
-    }).join(',\n    ');
-
-    return `CREATE TABLE ${tableName} (\n    ${columnDefs}\n);`;
-}
-
-function generateAddColumnSQL(tableName: string, col: any): string {
-    let def = `ALTER TABLE ${tableName} ADD [${col.name}] ${col.type}`;
-    if (!col.nullable) def += ' NOT NULL';
-    if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
-    return def + ';';
-}
-
-export async function POST(req: Request) {
+/**
+ * POST /api/schema/fix
+ * Creates missing schemas and tables
+ */
+export async function POST(req: NextRequest) {
     try {
-        const body = await req.json();
-        const provider = new MssqlProvider(body);
+        const config = await req.json();
+        const { tables, schemas } = await getAggregatedSchema();
 
-        // Get current schema
-        const currentSchema = await provider.getCurrentSchema();
-        const currentTables: Record<string, any[]> = {};
-        currentSchema.forEach((row: any) => {
-            const schema = row.SchemaName || 'dbo';
-            const table = row.TableName;
-            const key = `[${schema.toLowerCase()}].[${table.toLowerCase()}]`;
+        // Build connection config
+        const dbConfig: sql.config = {
+            server: config.server,
+            database: config.database,
+            options: {
+                encrypt: false,
+                trustServerCertificate: true,
+                instanceName: config.instance || undefined
+            },
+            ...(config.logonType === 'sql'
+                ? { user: config.username, password: config.password, authentication: { type: 'default' } }
+                : { authentication: { type: 'ntlm', options: { domain: '', userName: '', password: '' } } }
+            )
+        };
 
-            if (!currentTables[key]) {
-                currentTables[key] = [];
-            }
-            currentTables[key].push({
-                name: row.ColumnName,
-                type: row.DataType
-            });
-        });
+        const pool = await sql.connect(dbConfig);
+        const fixed = [];
 
-        // Generate fix scripts
-        const scripts: string[] = [];
-        const { tables: expectedTables, schemas: expectedSchemas } = await getAggregatedSchema();
+        // Create missing schemas
+        for (const schemaName of schemas) {
+            const schemaCheck = await pool.request()
+                .input('schemaName', sql.NVarChar, schemaName)
+                .query(`SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = @schemaName`);
 
-        // 1. Ensure Schemas Exist
-        for (const s of expectedSchemas) {
-            if (s !== 'dbo') {
-                scripts.push(`IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = '${s}') EXEC('CREATE SCHEMA [${s}]')`);
-            }
-        }
-
-        // 2. Ensure Tables Exist
-        for (const expected of expectedTables) {
-            const schema = expected.schema || 'dbo';
-            const key = `[${schema.toLowerCase()}].[${expected.name.toLowerCase()}]`;
-
-            if (!currentTables[key]) {
-                // Table missing - create it
-                scripts.push(generateCreateTableSQL(expected));
-            } else {
-                // Check columns
-                const currentCols = currentTables[key];
-                for (const expectedCol of expected.columns) {
-                    const found = currentCols.find(c => c.name.toLowerCase() === expectedCol.name.toLowerCase());
-                    if (!found) {
-                        const tableName = `[${schema}].[${expected.name}]`;
-                        scripts.push(generateAddColumnSQL(tableName, expectedCol));
-                    }
-                }
+            if (schemaCheck.recordset.length === 0) {
+                await pool.request().query(`CREATE SCHEMA [${schemaName}]`);
+                fixed.push(`Created schema: ${schemaName}`);
             }
         }
 
-        // Execute scripts
-        const executedScripts: string[] = [];
-        for (const script of scripts) {
-            await provider.query(script);
-            executedScripts.push(script);
+        // Create missing tables
+        for (const table of tables) {
+            const schemaName = table.schema || 'dbo';
+            const tableName = table.name;
+
+            const tableCheck = await pool.request()
+                .input('tableName', sql.NVarChar, tableName)
+                .input('schemaName', sql.NVarChar, schemaName)
+                .query(`
+                    SELECT TABLE_NAME 
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = @schemaName AND TABLE_NAME = @tableName
+                `);
+
+            if (tableCheck.recordset.length === 0) {
+                // Build CREATE TABLE statement
+                const columnDefs = table.columns.map(col => {
+                    const parts = [
+                        `[${col.name}]`,
+                        col.type,
+                        col.nullable === false ? 'NOT NULL' : 'NULL'
+                    ];
+
+                    if (col.primaryKey) parts.push('PRIMARY KEY');
+                    if (col.identity) parts.push('IDENTITY(1,1)');
+                    if (col.defaultValue) parts.push(`DEFAULT ${col.defaultValue}`);
+
+                    return parts.join(' ');
+                }).join(', ');
+
+                const createSql = `CREATE TABLE [${schemaName}].[${tableName}] (${columnDefs})`;
+                await pool.request().query(createSql);
+                fixed.push(`Created table: ${schemaName}.${tableName}`);
+            }
         }
+
+        await pool.close();
 
         return NextResponse.json({
             status: 'success',
-            message: `Applied ${executedScripts.length} fix(es)`,
-            scriptsExecuted: executedScripts
+            message: `Fixed ${fixed.length} schema issues`,
+            fixed
         });
     } catch (error: any) {
+        console.error('[API] Schema fix error:', error);
         return NextResponse.json({
             status: 'error',
             message: error.message

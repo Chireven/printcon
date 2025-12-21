@@ -88,7 +88,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
                             {cancelLabel}
                         </button>
                         <button
-                            onClick={onConfirm}
+                            onClick={() => onConfirm()}
                             className={`px-4 py-2 rounded-lg text-white text-sm font-bold shadow-lg transition-all active:scale-95 ${colors.confirmBtn}`}
                         >
                             {confirmLabel}

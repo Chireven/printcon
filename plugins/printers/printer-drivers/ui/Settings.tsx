@@ -3,11 +3,14 @@ import { Folder, Save, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 // @ts-ignore - Importing from src (outside plugin)
 import { FilePicker } from '../../../../src/components/ui/FilePicker';
+import { Button } from '../../../../src/components/ui/Button';
 
 export default function PrinterDriverSettings() {
     const [repoPath, setRepoPath] = useState('');
     const [loading, setLoading] = useState(true);
     const [showPicker, setShowPicker] = useState(false);
+    const [autoCleanupFolders, setAutoCleanupFolders] = useState<boolean | null>(null); // null until loaded from DB
+    const [isSaving, setIsSaving] = useState(false);
 
     // Load config
     useEffect(() => {
@@ -17,6 +20,14 @@ export default function PrinterDriverSettings() {
                 const data = await res.json();
                 if (data.status === 'success' && data.config?.repositoryPath) {
                     setRepoPath(data.config.repositoryPath);
+                }
+                // Load autoCleanupFolders from config
+                if (data.config?.autoCleanupFolders !== undefined) {
+                    const value = data.config.autoCleanupFolders;
+                    setAutoCleanupFolders(value === true || value === 'true');
+                } else {
+                    // Default to false if not set in database
+                    setAutoCleanupFolders(false);
                 }
             } catch (e) {
                 console.error('Failed to load config', e);
@@ -28,20 +39,31 @@ export default function PrinterDriverSettings() {
     }, []);
 
     const handleSave = async () => {
+        setIsSaving(true);
         try {
-            const res = await fetch('/api/system/plugins/printer-drivers/config', {
+            const response = await fetch('/api/system/command', {
                 method: 'POST',
-                body: JSON.stringify({ repositoryPath: repoPath })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event: 'REQUEST_SAVE_SETTINGS',
+                    pluginId: 'printer-drivers',
+                    data: {
+                        repositoryPath: repoPath,
+                        autoCleanupFolders
+                    }
+                })
             });
-            const data = await res.json();
 
-            if (res.ok && data.status === 'success') {
-                toast.success('Settings Saved', { description: 'Driver repository path updated.' });
+            const data = await response.json();
+            if (data.success) {
+                toast.success('Settings saved successfully');
             } else {
                 toast.error('Save Failed', { description: data.message || 'Unknown server error' });
             }
         } catch (e: any) {
             toast.error('Save Failed', { description: e.message || 'Network error' });
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -82,14 +104,56 @@ export default function PrinterDriverSettings() {
                     </p>
                 </div>
 
-                <div className="border-t border-slate-800 pt-6 flex justify-end">
-                    <button
-                        onClick={handleSave}
-                        className="bg-sky-500 hover:bg-sky-400 text-slate-900 font-bold text-sm px-6 py-2 rounded-lg transition-colors flex items-center gap-2"
+                {/* Auto-Cleanup Empty Folders Setting */}
+                <label className="flex items-center justify-between cursor-pointer pt-4 border-t border-slate-800">
+                    <div>
+                        <span className="text-sm font-medium text-slate-200">Auto-Cleanup Empty Folders</span>
+                        <p className="text-xs text-slate-500 mt-1">Automatically remove empty shard folders after deleting the last driver file</p>
+                    </div>
+                    <div
+                        onClick={async () => {
+                            const newValue = !autoCleanupFolders;
+                            setAutoCleanupFolders(newValue);
+
+                            // Auto-save this setting immediately
+                            try {
+                                await fetch('/api/system/command', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        event: 'REQUEST_SAVE_SETTINGS',
+                                        pluginId: 'printer-drivers',
+                                        data: {
+                                            repositoryPath: repoPath,
+                                            autoCleanupFolders: newValue
+                                        }
+                                    })
+                                });
+                                toast.success(newValue ? 'Auto-cleanup enabled' : 'Auto-cleanup disabled');
+                            } catch (e) {
+                                toast.error('Failed to save setting');
+                                setAutoCleanupFolders(!newValue); // Revert on error
+                            }
+                        }}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${autoCleanupFolders ? 'bg-sky-600' : 'bg-slate-700'
+                            }`}
                     >
-                        <Save className="w-4 h-4" />
-                        Save Changes
-                    </button>
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoCleanupFolders ? 'translate-x-6' : 'translate-x-1'
+                            }`} />
+                    </div>
+                </label>
+
+                <div className="border-t border-slate-800 pt-6 flex justify-end">
+                    <Button
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        variant="primary"
+                        size="md"
+                        icon={Save}
+                        loading={isSaving}
+                    >
+                        {isSaving ? 'Saving...' : 'Save Changes'}
+                    </Button>
                 </div>
             </div>
 

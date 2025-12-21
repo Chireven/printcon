@@ -56,11 +56,13 @@ export const initialize: PluginInitializer = async (api) => {
     // Subscribe to REQUEST_UPDATE_DRIVER
     api.events.on('REQUEST_UPDATE_DRIVER', async (payload: any) => {
         try {
-            console.log('[PrinterDrivers] Updating driver:', payload.id);
-            await PrinterService.updatePackage(payload.id, payload.metadata);
+            console.log('[PrinterDrivers] Updating driver - full payload:', JSON.stringify(payload, null, 2));
+            const { id, metadata } = payload;
+            console.log('[PrinterDrivers] Extracted id:', id, 'metadata:', metadata);
+            await PrinterService.updatePackage(id, metadata);
             api.events.emit('RESPONSE_UPDATE_DRIVER', {
                 success: true,
-                id: payload.id
+                id: id
             });
         } catch (e: any) {
             console.error('[PrinterDrivers] Failed to update driver:', e);
@@ -74,20 +76,162 @@ export const initialize: PluginInitializer = async (api) => {
     // Subscribe to REQUEST_DELETE_DRIVER
     api.events.on('REQUEST_DELETE_DRIVER', async (payload: any) => {
         try {
-            console.log('[PrinterDrivers] Deleting driver:', payload.id);
-            const result = await PrinterService.deletePackage(payload.id);
+            console.log('[PrinterDrivers] Deleting driver:', payload.id, 'forceDbOnly:', payload.forceDbOnly);
+            const result = await PrinterService.deletePackage(payload.id, payload.forceDbOnly);
             api.events.emit('RESPONSE_DELETE_DRIVER', {
                 success: true,
-                fileDeleted: result.fileDeleted
+                fileDeleted: result.fileDeleted,
+                fileMissing: result.fileMissing
             });
         } catch (e: any) {
             console.error('[PrinterDrivers] Failed to delete driver:', e);
             api.events.emit('RESPONSE_DELETE_DRIVER', {
                 success: false,
+                error: e.message,
+                fileMissing: e.message === 'DRIVER_FILE_MISSING'
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_DOWNLOAD_DRIVER
+    api.events.on('REQUEST_DOWNLOAD_DRIVER', async (payload: any) => {
+        try {
+            console.log('[PrinterDrivers] Preparing driver download:', payload.id);
+            const packageBuffer = await PrinterService.getRawPackage(payload.id);
+
+            // Import AdmZip for repackaging
+            const AdmZip = (await import('adm-zip')).default;
+            const sourceZip = new AdmZip(packageBuffer);
+            const targetZip = new AdmZip();
+            const entries = sourceZip.getEntries();
+
+            // Flatten payload/ folder
+            entries.forEach((entry) => {
+                if (entry.entryName.startsWith('payload/') && !entry.isDirectory) {
+                    const newName = entry.entryName.replace(/^payload\//, '');
+                    if (newName) {
+                        targetZip.addFile(newName, entry.getData());
+                    }
+                }
+            });
+
+            const downloadBuffer = targetZip.toBuffer();
+
+            api.events.emit('RESPONSE_DOWNLOAD_DRIVER', {
+                success: true,
+                buffer: downloadBuffer.toString('base64'), // Base64 encode for transmission
+                filename: payload.filename || `${payload.id}.zip`
+            });
+        } catch (e: any) {
+            console.error('[PrinterDrivers] Failed to prepare download:', e);
+            api.events.emit('RESPONSE_DOWNLOAD_DRIVER', {
+                success: false,
                 error: e.message
             });
         }
     });
+
+    // Subscribe to REQUEST_BUILD_PACKAGE
+    api.events.on('REQUEST_BUILD_PACKAGE', async (payload: any) => {
+        try {
+            console.log('[PrinterDrivers] Building package from path:', payload.sourcePath);
+            const { PDPackageBuilder } = await import('./pd-builder');
+
+            const username = payload.user || 'system';
+            const { packageBuffer, manifest, contentHash } = await PDPackageBuilder.buildPackage(
+                payload.sourcePath,
+                username
+            );
+
+            // Upload package using service (with content hash for deduplication)
+            const result = await PrinterService.savePackage(
+                packageBuffer,
+                `${manifest.driverMetadata.displayName}.pd`,
+                username,
+                contentHash // Pass content hash for deduplication
+            );
+
+            api.events.emit('RESPONSE_BUILD_PACKAGE', {
+                success: true,
+                packageId: result.id,
+                isDuplicateName: result.isDuplicateName || false,
+                manifest: {
+                    displayName: manifest.driverMetadata.displayName,
+                    version: manifest.driverMetadata.version,
+                    supportedModels: manifest.hardwareSupport.compatibleModels.length,
+                    pnpIds: manifest.hardwareSupport.pnpIds.length
+                }
+            });
+        } catch (e: any) {
+            console.error('[PrinterDrivers] Failed to build package:', e);
+            api.events.emit('RESPONSE_BUILD_PACKAGE', {
+                success: false,
+                error: e.message
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_VALIDATE_INF
+    api.events.on('REQUEST_VALIDATE_INF', async (payload: any) => {
+        try {
+            console.log('[PrinterDrivers] Validating INF path:', payload.filePath);
+            const { PDPackageBuilder } = await import('./pd-builder');
+
+            const validation = await PDPackageBuilder.validateInfPath(payload.filePath);
+
+            api.events.emit('RESPONSE_VALIDATE_INF', {
+                success: true,
+                validation: validation
+            });
+        } catch (e: any) {
+            console.error('[PrinterDrivers] Failed to validate INF path:', e);
+            api.events.emit('RESPONSE_VALIDATE_INF', {
+                success: false,
+                error: e.message,
+                validation: { valid: false, error: e.message }
+            });
+        }
+    });
+
+    // Subscribe to REQUEST_SAVE_SETTINGS
+    api.events.on('REQUEST_SAVE_SETTINGS', async (payload: any) => {
+        try {
+            console.log('[PrinterDrivers] Saving settings:', payload);
+
+            const db = api.database;
+
+            // Save each setting to database
+            const settings = payload as { repositoryPath?: string, autoCleanupFolders?: boolean };
+
+            for (const [key, value] of Object.entries(settings)) {
+                const query = `
+                    MERGE [plg_printer_drivers].Settings AS target
+                    USING (SELECT @key AS SettingKey) AS source
+                    ON target.SettingKey = source.SettingKey
+                    WHEN MATCHED THEN
+                        UPDATE SET SettingValue = @value
+                    WHEN NOT MATCHED THEN
+                        INSERT (SettingKey, SettingValue) VALUES (@key, @value);
+                `;
+
+                await db.query(query, {
+                    key: key,
+                    value: String(value)
+                });
+            }
+
+            api.events.emit('RESPONSE_SAVE_SETTINGS', {
+                success: true
+            });
+        } catch (e: any) {
+            console.error('[PrinterDrivers] Failed to save settings:', e);
+            api.events.emit('RESPONSE_SAVE_SETTINGS', {
+                success: false,
+                error: e.message
+            });
+        }
+    });
+
 
     console.log('[PrinterDrivers] Plugin initialized with Storage Broker support');
 };

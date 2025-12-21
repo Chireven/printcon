@@ -205,6 +205,21 @@ export class StorageBroker {
     }
 
     /**
+     * Deletes an empty directory from storage.
+     * 
+     * @param relativePath - Path relative to storage root (e.g., "12/")
+     */
+    static async deleteDirectory(relativePath: string): Promise<void> {
+        StorageBroker.ensureInitialized();
+
+        if (typeof StorageBroker.provider!.deleteDirectory !== 'function') {
+            throw new Error('Storage provider does not support deleteDirectory');
+        }
+
+        return StorageBroker.provider!.deleteDirectory(relativePath);
+    }
+
+    /**
      * Gets the total number of files in storage.
      * Used for capacity monitoring.
      * 

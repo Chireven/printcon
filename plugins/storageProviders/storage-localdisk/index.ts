@@ -115,6 +115,28 @@ export class LocaldiskProvider implements IStorageProvider {
     return results;
   }
 
+  async deleteDirectory(relativePath: string): Promise<void> {
+    const fullPath = this.getFullPath(relativePath);
+    try {
+      const stat = await fs.promises.stat(fullPath);
+      if (stat.isDirectory()) {
+        await fs.promises.rmdir(fullPath);
+        console.log(`[LocaldiskProvider] Deleted empty directory: ${relativePath}`);
+      }
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        // Directory doesn't exist, ignore
+        return;
+      }
+      if (error.code === 'ENOTEMPTY') {
+        // Directory not empty, this is expected - don't throw error
+        console.log(`[LocaldiskProvider] Directory not empty, skipping deletion: ${relativePath}`);
+        return;
+      }
+      throw error;
+    }
+  }
+
   async getFileCount(): Promise<number> {
     // Recursive count
     let count = 0;

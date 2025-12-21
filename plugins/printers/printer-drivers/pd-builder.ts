@@ -320,7 +320,11 @@ export class PDPackageBuilder {
         // 4. Generate manifest with correct entryPoint
         const manifest = this.generateManifest(metadata, user, infFilename);
 
-        // 5. Create ZIP structure
+        // 5. Create deterministic hash from file contents (not ZIP metadata)
+        // This allows us to preserve original timestamps while ensuring identical drivers get same hash
+        const contentHash = await this.hashDriverContents(sourcePath, manifest);
+
+        // 6. Create ZIP structure with ORIGINAL timestamps preserved
         const zip = new AdmZip();
 
         // Add manifest.json at root
@@ -329,10 +333,10 @@ export class PDPackageBuilder {
         // Add all driver files to payload/ folder
         await this.addPayloadToZip(zip, sourcePath);
 
-        // 6. Generate buffer
+        // 7. Generate buffer
         const packageBuffer = zip.toBuffer();
 
-        return { packageBuffer, manifest };
+        return { packageBuffer, manifest, contentHash };
     }
 
     /**
@@ -355,8 +359,10 @@ export class PDPackageBuilder {
         user: string,
         infFilename: string
     ): PDManifestSchema {
-        // Generate unique package ID
-        const packageId = crypto.randomUUID();
+        // Generate deterministic package ID based on driver content
+        // This ensures the same driver uploaded twice produces the same hash
+        const deterministicString = `${metadata.displayName}-${metadata.version}-${metadata.manufacturer}`;
+        const packageId = crypto.createHash('sha256').update(deterministicString).digest('hex');
 
         // Set entryPoint to the actual INF file in payload folder
         const entryPoint = `payload/${infFilename}`;
@@ -365,7 +371,7 @@ export class PDPackageBuilder {
             schemaVersion: '1.0',
             packageInfo: {
                 id: packageId,
-                createdAt: new Date().toISOString(),
+                createdAt: '2024-01-01T00:00:00.000Z', // Fixed timestamp for deterministic hashing
                 createdBy: user
             },
             driverMetadata: {
@@ -386,6 +392,7 @@ export class PDPackageBuilder {
 
     /**
      * Adds all files from source folder to the ZIP under payload/ directory.
+     * Original timestamps are preserved.
      * 
      * @param zip - AdmZip instance
      * @param sourcePath - Source folder path
@@ -410,6 +417,37 @@ export class PDPackageBuilder {
                 zip.addFile(`payload/${file.name}`, fileContent);
             }
         }
+    }
+
+    /**
+     * Creates deterministic hash from driver files ONLY (payload directory).
+     * Completely ignores manifest, metadata, and ZIP structure.
+     * This allows format evolution without affecting deduplication.
+     * 
+     * @param sourcePath - Path to driver folder (becomes payload/)
+     * @param manifest - Package manifest (not used for hashing)
+     * @returns SHA256 hash of driver file contents only
+     */
+    private static async hashDriverContents(sourcePath: string, manifest: PDManifestSchema): Promise<string> {
+        const crypto = await import('crypto');
+        const hash = crypto.createHash('sha256');
+
+        // Get all files from driver folder and sort by path for deterministic order
+        const allFiles = await this.getAllFiles(sourcePath);
+        const sortedFiles = allFiles.sort();
+
+        // Hash ONLY the driver file contents in sorted order
+        // No manifest, no metadata - pure driver content
+        for (const filePath of sortedFiles) {
+            const relativePath = path.relative(sourcePath, filePath);
+            const content = await fs.readFile(filePath);
+
+            // Include relative filename in hash to detect renames
+            hash.update(relativePath);
+            hash.update(content);
+        }
+
+        return hash.digest('hex');
     }
 
     /**

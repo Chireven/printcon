@@ -129,6 +129,12 @@ async function handleDatabaseSync(plugin: PluginEntry, pluginDir: string) {
                 });
             } else {
                 Logger.info('loader', 'core', `Schema verified for ${plugin.id}.`);
+
+                // Clear any previous schema mismatch alerts
+                const { SystemStatus } = await import('./system-status');
+                SystemStatus.update(plugin.id, [
+                    { label: 'Database', value: 'Ready', severity: 'success' }
+                ]);
             }
         }
     }
@@ -151,7 +157,8 @@ function createScopedApi(plugin: PluginEntry): PluginAPI {
             read: async (rel) => (await import('./storage-broker')).StorageBroker.read(rel),
             exists: async (rel) => (await import('./storage-broker')).StorageBroker.exists(rel),
             delete: async (rel) => (await import('./storage-broker')).StorageBroker.delete(rel),
-            list: async (pre) => (await import('./storage-broker')).StorageBroker.list(pre)
+            list: async (pre) => (await import('./storage-broker')).StorageBroker.list(pre),
+            deleteDirectory: async (rel) => (await import('./storage-broker')).StorageBroker.deleteDirectory(rel)
         },
         variables: {
             publish: (key, val) => VariableService.publish(plugin.id, key, val),

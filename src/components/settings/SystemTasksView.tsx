@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Play, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '../ui/Button';
 
 interface SystemTask {
     id: string;
@@ -79,29 +80,16 @@ export default function SystemTasksView() {
                             <p className="text-slate-400 text-xs leading-relaxed">{task.description}</p>
                         </div>
 
-                        <button
+                        <Button
                             onClick={() => runTask(task.id, task.name)}
                             disabled={!!running}
-                            className={`
-                                flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all
-                                ${running === task.id
-                                    ? 'bg-slate-800 text-slate-400 cursor-wait'
-                                    : 'bg-sky-500 text-white hover:bg-sky-400 shadow-lg shadow-sky-500/20 active:scale-95'
-                                }
-                            `}
+                            variant="primary"
+                            size="sm"
+                            icon={Play}
+                            loading={running === task.id}
                         >
-                            {running === task.id ? (
-                                <>
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    Running...
-                                </>
-                            ) : (
-                                <>
-                                    <Play className="w-3.5 h-3.5 fill-current" />
-                                    Run Now
-                                </>
-                            )}
-                        </button>
+                            {running === task.id ? 'Running...' : 'Run Now'}
+                        </Button>
                     </div>
                 ))}
             </div>

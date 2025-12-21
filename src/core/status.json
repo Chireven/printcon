@@ -1,21 +1,9 @@
 {
-  "test-isolation": [
-    {
-      "label": "Database",
-      "value": "Synced",
-      "severity": "success"
-    }
-  ],
   "printer-drivers": [
     {
-      "label": "Status",
-      "value": "Failed to Load",
-      "severity": "error"
-    },
-    {
-      "label": "Error",
-      "value": "ParseError: D:\\: Unexpected reserved word 'public'.  \n D:\\GitHub\\printcon\\plugins\\printers\\printer-drivers\\service.ts:457:4",
-      "severity": "error"
+      "label": "Database",
+      "value": "Ready",
+      "severity": "success"
     }
   ]
 }
