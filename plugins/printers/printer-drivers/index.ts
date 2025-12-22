@@ -73,6 +73,23 @@ export const initialize: PluginInitializer = async (api) => {
         }
     });
 
+    // Handle Fetch Driver Models
+    api.events.on('REQUEST_DRIVER_MODELS', async (data: any) => {
+        try {
+            const models = await PrinterService.getDriverModels(data.packageId);
+            api.events.emit('RESPONSE_DRIVER_MODELS', {
+                success: true,
+                packageId: data.packageId,
+                models
+            });
+        } catch (e: any) {
+            api.events.emit('RESPONSE_DRIVER_MODELS', {
+                success: false,
+                error: e.message
+            });
+        }
+    });
+
     // Subscribe to REQUEST_DELETE_DRIVER
     api.events.on('REQUEST_DELETE_DRIVER', async (payload: any) => {
         try {
@@ -228,6 +245,79 @@ export const initialize: PluginInitializer = async (api) => {
             api.events.emit('RESPONSE_SAVE_SETTINGS', {
                 success: false,
                 error: e.message
+            });
+        }
+    });
+
+    // ========================================
+    // Storage Transfers Integration
+    // ========================================
+
+    // Listen for completed uploads from storage-transfers
+    // Build .pd package when upload is finalized
+    api.events.on('UPLOAD_COMPLETED', async (data: any) => {
+        try {
+            if (!data.success || !data.tempPath) {
+                return; // Storage-transfers handled the error
+            }
+
+            const { tempPath, sessionId } = data;
+            const username = 'admin'; // TODO: Get from context
+
+            console.log('[PrinterDrivers] Building .pd package from uploaded files:', tempPath);
+
+            // Emit progress: Building package
+            api.events.emit('UPLOAD_PROGRESS', {
+                stage: 'building',
+                message: 'Building .pd package from driver files'
+            });
+
+            // Build .pd package
+            const { PDPackageBuilder } = await import('./pd-builder');
+            const { packageBuffer, manifest } = await PDPackageBuilder.buildPackage(tempPath, username);
+
+            // Compute content hash for deduplication
+            const crypto = await import('crypto');
+            const contentHash = crypto.createHash('sha256').update(packageBuffer).digest('hex');
+
+            console.log('[PrinterDrivers] ✅ Package built. Size:', packageBuffer.length, 'bytes, Hash:', contentHash);
+
+            // Emit progress: Saving package
+            api.events.emit('UPLOAD_PROGRESS', {
+                stage: 'saving',
+                message: `Saving package to repository`
+            });
+
+            // Save to repository
+            console.log('[PrinterDrivers] 💾 Saving package to repository...');
+            const result = await PrinterService.savePackage(
+                packageBuffer,
+                `${manifest.driverMetadata.displayName}.pd`,
+                username,
+                contentHash
+            );
+
+            // Request cleanup
+            api.events.emit('REQUEST_CLEANUP_SESSION', {
+                sessionId: sessionId  // Pass directly, not nested
+            });
+
+            console.log('[PrinterDrivers] Package built successfully:', result.id);
+
+            // Emit completion event
+            api.events.emit('UPLOAD_COMPLETE', {
+                success: true,
+                packageId: result.id,
+                displayName: manifest.driverMetadata.displayName
+            });
+        } catch (e: any) {
+            console.error('[PrinterDrivers] Failed to build package:', e);
+
+            // Notify user of the error
+            api.events.emit('PACKAGE_BUILD_FAILED', {
+                success: false,
+                error: e.message,
+                details: e.stack
             });
         }
     });

@@ -4,11 +4,21 @@ import path from 'path';
 import { EventHub } from '../../../../core/events';
 import { SystemStatus } from '../../../../core/system-status';
 
-// In-memory store for connected SSE clients
-const clients = new Set<(data: string) => void>();
+// Make clients Set global to survive Next.js module reloads
+declare global {
+    var sseClients: Set<(data: any) => void>;
+}
 
-// Connect Global EventHub to SSE
-EventHub.setBroadcaster(broadcastSystemEvent);
+// Getter for clients Set (creates if doesn't exist)
+function getClients(): Set<(data: any) => void> {
+    if (!globalThis.sseClients) {
+        globalThis.sseClients = new Set();
+    }
+    return globalThis.sseClients;
+}
+
+// Extend timeout for long-running uploads (default is 60s)
+export const maxDuration = 300; // 5 minutes
 
 // Singleton Watcher
 let isWatching = false;
@@ -90,7 +100,8 @@ export async function GET(req: NextRequest) {
         writer.write(encoder.encode(payload));
     };
 
-    clients.add(sendEvent);
+    getClients().add(sendEvent);
+    console.log(`[SSE] 👤 New client connected. Total clients: ${getClients().size}`);
 
     // [Replay] Push any active system alerts to the new client
     try {
@@ -124,7 +135,8 @@ export async function GET(req: NextRequest) {
 
     req.signal.addEventListener('abort', () => {
         clearInterval(heartbeat);
-        clients.delete(sendEvent);
+        getClients().delete(sendEvent);
+        console.log(`[SSE] 👋 Client disconnected. Remaining clients: ${getClients().size}`);
         writer.close();
     });
 
@@ -139,5 +151,20 @@ export async function GET(req: NextRequest) {
 
 // Global broadcast function for the API layer to use
 export function broadcastSystemEvent(event: any) {
-    clients.forEach((send) => send(event));
+    const timestamp = new Date().toISOString();
+    const clients = getClients();
+    console.log(`[SSE] 📡 [${timestamp}] Broadcasting event: ${event.event} to ${clients.size} client(s)`);
+    console.log(`[SSE] 📦 Event data:`, JSON.stringify(event).substring(0, 200));
+
+    if (clients.size === 0) {
+        console.warn(`[SSE] ⚠️  No clients connected to receive ${event.event}`);
+    }
+
+    clients.forEach((send) => {
+        try {
+            send(event);
+        } catch (e) {
+            console.error('[SSE] ❌ Failed to send to client:', e);
+        }
+    });
 }

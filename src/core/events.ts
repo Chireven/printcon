@@ -64,4 +64,14 @@ export class EventHub {
         }
         this.listeners.get(event)?.push(callback);
     }
+
+    static off(event: string, callback: (payload: any) => void): void {
+        const listeners = this.listeners.get(event);
+        if (listeners) {
+            const index = listeners.indexOf(callback);
+            if (index > -1) {
+                listeners.splice(index, 1);
+            }
+        }
+    }
 }

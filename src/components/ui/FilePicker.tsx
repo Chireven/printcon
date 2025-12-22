@@ -89,8 +89,10 @@ export const FilePicker: React.FC<FilePickerProps> = ({ onSelect, onCancel, sele
     // Reset selection on nav
     useEffect(() => { setSelectedFile(null); }, [currentPath]);
 
-    // For Select Folder button: Must be not root AND contain at least one valid file (e.g. .inf)
-    const canSelect = isValid && (selectionType === 'folder' ? (currentPath !== '' && hasValidFile) : true);
+    // For Select Folder button: Must be not root
+    // Only require valid file if allowedExtensions are specified
+    const requiresValidFile = selectionType === 'folder' && allowedExtensions.length > 0;
+    const canSelect = isValid && (requiresValidFile ? hasValidFile : selectionType !== 'folder' || currentPath !== '');
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {

@@ -8,5 +8,8 @@
   "entryPoints": {
     "main": "index.ts",
     "settings": "ui/Settings.tsx"
+  },
+  "ui": {
+    "configPage": "ui/Settings.tsx"
   }
 }

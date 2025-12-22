@@ -10,6 +10,43 @@ The PrintCon architecture is **Modular-First** and **Contract-Based**. The core 
 - **Passive Nature**: Plugins do not "run" the system; they are initialized by the Core and respond to state changes or user interactions via defined interfaces.
 - **Contract Enforcement**: All interactions are governed by TypeScript interfaces (defined in `@core/types`) ensuring that as long as the contract is honored, the system remains stable.
 
+### Critical Rule: Dynamic UI Discovery
+
+**Rule #25: No Hardcoded Plugin Imports in Core**
+
+The Core MUST NEVER import plugin UI components directly. All plugin configuration pages, modals, and UI must be dynamically discovered from `manifest.json`.
+
+**❌ FORBIDDEN (Tight Coupling):**
+```tsx
+// DO NOT DO THIS - Violates plugin isolation!
+import PluginSettings from '../../../plugins/my-plugin/ui/Settings';
+
+{pluginId === 'my-plugin' ? <PluginSettings /> : null}
+```
+
+**✅ REQUIRED (Dynamic Loading):**
+```tsx
+// Load from manifest.json at runtime
+const manifest = await fetch(`/api/system/plugins/manifest?pluginId=${pluginId}`);
+const configPath = manifest.ui?.configPage;
+
+// Use React.lazy for dynamic import
+const ConfigComponent = lazy(() => import(`../../../plugins/${pluginPath}/${configPath}`));
+
+<Suspense fallback={<Loader />}>
+    <ConfigComponent />
+</Suspense>
+```
+
+**Why This Matters:**
+- ✅ True plugin isolation - Core doesn't know about specific plugins
+- ✅ Hot-swappable - Install plugin, it appears immediately
+- ✅ Scalable - Works with unlimited plugins
+- ✅ Follows architecture - Manifest-driven discovery
+
+**Implementation:**
+See `src/components/settings/PluginConfigContainer.tsx` for the reference implementation.
+
 ## 2. Dynamic Configuration (Variables)
 
 To decouple the Core from plugin-specific paths and settings, the system uses a **Variable Resolution Service**.

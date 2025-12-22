@@ -10,6 +10,9 @@
     "ui": "ui/DriverRepository.tsx",
     "settings": "ui/Settings.tsx"
   },
+  "ui": {
+    "configPage": "ui/Settings.tsx"
+  },
   "database": {
     "schema": "plg_printer_drivers",
     "tables": [

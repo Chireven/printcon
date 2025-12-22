@@ -474,9 +474,17 @@ function DashboardContent() {
         const handlePayload = (payload: any) => {
             const { event, data } = payload;
 
+            // Forward to local Event Bus for client-side listeners (e.g. Modals)
+            EventHub.emit(event, data?.pluginId || 'system', data?.status || 'success', data);
+
             // Skip operational Event Hub messages (REQUEST_/RESPONSE_ pattern)
             // These are internal plugin communications, not lifecycle events
             if (event.startsWith('REQUEST_') || event.startsWith('RESPONSE_')) {
+                return;
+            }
+
+            // Skip upload events - these are handled by LocalDriverUploadModal
+            if (event.startsWith('UPLOAD_')) {
                 return;
             }
 

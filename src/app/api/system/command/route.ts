@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
                 // Long-running operations get extended timeout
                 if (event === 'REQUEST_BUILD_PACKAGE') {
                     timeoutMs = 30000; // 30 seconds for package building
+                } else if (event === 'REQUEST_FINALIZE_UPLOAD') {
+                    timeoutMs = 60000; // 60 seconds for file assembly (can have many files)
                 } else if (event === 'REQUEST_DOWNLOAD_DRIVER') {
                     timeoutMs = 10000; // 10 seconds for downloads
                 } else if (event === 'REQUEST_FIX_SCHEMA' || event === 'REQUEST_VALIDATE_SCHEMA') {
@@ -56,7 +58,10 @@ export async function POST(req: NextRequest) {
                     }, timeoutMs);
 
                     const listener = (payload: any) => {
-                        console.log(`[API] Received ${responseEvent}, resolving.`, payload);
+                        // Suppress noisy chunk upload logs
+                        if (responseEvent !== 'RESPONSE_UPLOAD_CHUNK') {
+                            console.log(`[API] Received ${responseEvent}, resolving.`, payload);
+                        }
                         clearTimeout(timeout);
                         resolve(NextResponse.json(payload)); // Return the data from the plugin
                     };

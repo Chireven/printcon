@@ -1,0 +1,14 @@
+{
+  "id": "storage-transfers",
+  "name": "Storage Transfers",
+  "version": "1.0.0",
+  "type": "storageProvider",
+  "coreVersion": "^1.0.0",
+  "requiredPermissions": [],
+  "entryPoints": {
+    "main": "index.ts"
+  },
+  "ui": {
+    "configPage": "ui/ConfigPage.tsx"
+  }
+}

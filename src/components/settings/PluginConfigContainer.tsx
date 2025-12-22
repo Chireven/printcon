@@ -1,17 +1,11 @@
 
-import React, { useState } from 'react';
-import { Activity, Lock, Unlock, Package, Upload, Trash2, Settings } from 'lucide-react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
+import { Activity, Lock, Unlock, Package, Upload, Trash2, Settings, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../../providers/MockAuthProvider';
 import { PluginDeleteModal } from '../ui/PluginDeleteModal';
 import { PluginInstallModal } from '../ui/PluginInstallModal';
 import { PluginUnlockModal } from '../ui/PluginUnlockModal';
-
-// Dynamic Imports for Plugin UIs
-// @ts-ignore
-import MssqlSettings from '../../../plugins/databaseProviders/database-mssql/ui/Settings';
-// @ts-ignore
-import PrinterDriverSettings from '../../../plugins/printers/printer-drivers/ui/Settings';
 
 interface PluginConfigContainerProps {
     pluginId: string;
@@ -21,6 +15,16 @@ interface PluginConfigContainerProps {
     pluginType?: string;
     onDeleteSuccess?: (id: string) => void;
     onStateChange?: () => void;
+}
+
+interface PluginManifest {
+    id: string;
+    name: string;
+    version: string;
+    type: string;
+    ui?: {
+        configPage?: string;
+    };
 }
 
 export const PluginConfigContainer = ({
@@ -41,6 +45,66 @@ export const PluginConfigContainer = ({
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [showUpdatePicker, setShowUpdatePicker] = useState(false);
     const [showUnlockModal, setShowUnlockModal] = useState(false);
+
+    // Dynamic Config Page Loading
+    const [ConfigComponent, setConfigComponent] = useState<React.ComponentType<any> | null>(null);
+    const [isLoadingConfig, setIsLoadingConfig] = useState(true);
+    const [configError, setConfigError] = useState<string | null>(null);
+
+    // Load plugin manifest and config page dynamically
+    useEffect(() => {
+        const loadConfigPage = async () => {
+            setIsLoadingConfig(true);
+            setConfigError(null);
+
+            try {
+                // Fetch plugin registry to get manifest
+                const registryRes = await fetch('/api/system/plugins/registry');
+                const registry = await registryRes.json();
+
+                const pluginEntry = registry.plugins?.find((p: any) => p.id === pluginId);
+
+                if (!pluginEntry) {
+                    throw new Error(`Plugin ${pluginId} not found in registry`);
+                }
+
+                // Fetch the actual manifest.json
+                const manifestRes = await fetch(`/api/system/plugins/manifest?pluginId=${pluginId}`);
+                const manifest: PluginManifest = await manifestRes.json();
+
+                if (manifest.ui?.configPage) {
+                    // Dynamically import the config page component
+                    const configPath = manifest.ui.configPage.replace('.tsx', '').replace('.ts', '');
+
+                    // Determine plugin directory based on type
+                    let pluginDir = '';
+                    if (manifest.type === 'databaseProvider') pluginDir = 'databaseProviders';
+                    else if (manifest.type === 'storageProvider') pluginDir = 'storageProviders';
+                    else if (manifest.type === 'logonProvider') pluginDir = 'logonProviders';
+                    else pluginDir = 'printers'; // Default for feature plugins
+
+                    // IMPORTANT: Add .tsx explicitly to prevent Turbopack from scanning .md files
+                    const componentPath = `../../../plugins/${pluginDir}/${manifest.id}/${configPath}.tsx`;
+
+                    console.log(`[PluginConfig] Loading config page: ${componentPath}`);
+
+                    // Dynamically import using React.lazy  
+                    const LazyComponent = lazy(() => import(/* @vite-ignore */ componentPath));
+                    setConfigComponent(() => LazyComponent);
+                } else {
+                    // No config page defined
+                    setConfigComponent(null);
+                }
+            } catch (e: any) {
+                console.error('[PluginConfig] Failed to load config page:', e);
+                setConfigError(e.message);
+            } finally {
+                setIsLoadingConfig(false);
+            }
+        };
+
+        loadConfigPage();
+    }, [pluginId]);
 
     const handlePowerToggle = async () => {
         toast.info(active ? 'Deactivating...' : 'Activating...', { description: 'Updating registry...' });
@@ -250,15 +314,32 @@ export const PluginConfigContainer = ({
                 </div>
             </div>
 
-            {pluginId === 'database-mssql' ? (
-                <MssqlSettings initialAction={action} />
-            ) : pluginId === 'printer-drivers' ? (
-                <PrinterDriverSettings />
+            {/* Dynamic Config Page Rendering */}
+            {isLoadingConfig ? (
+                <div className="flex items-center justify-center h-64">
+                    <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
+                </div>
+            ) : configError ? (
+                <div className="p-12 border-2 border-dashed border-red-800 rounded-xl flex flex-col items-center justify-center text-red-400 bg-red-900/20">
+                    <Settings className="w-12 h-12 mb-4 opacity-50" />
+                    <p className="font-medium">Failed to load configuration</p>
+                    <p className="text-xs mt-2 font-mono bg-slate-900 px-3 py-1.5 rounded border border-slate-800 text-slate-500">{configError}</p>
+                </div>
+            ) : ConfigComponent ? (
+                <Suspense fallback={
+                    <div className="flex items-center justify-center h-64">
+                        <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
+                    </div>
+                }>
+                    <ConfigComponent initialAction={action} />
+                </Suspense>
             ) : (
                 <div className="p-12 border-2 border-dashed border-slate-800 rounded-xl flex flex-col items-center justify-center text-slate-600 bg-slate-900/20">
                     <Settings className="w-12 h-12 mb-4 opacity-50 animate-spin-slow" />
-                    <p className="font-medium">Plugin configuration UI</p>
-                    <p className="text-xs mt-2 font-mono bg-slate-900 px-3 py-1.5 rounded border border-slate-800 text-slate-500">Target: plugins/*/{pluginId}/Settings.tsx</p>
+                    <p className="font-medium">No configuration UI available</p>
+                    <p className="text-xs mt-2 font-mono bg-slate-900 px-3 py-1.5 rounded border border-slate-800 text-slate-500">
+                        Add "ui.configPage" to manifest.json to enable configuration
+                    </p>
                 </div>
             )}
 

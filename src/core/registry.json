@@ -34,5 +34,14 @@
     "path": "plugins/storageProviders/storage-localdisk",
     "installedAt": "2025-12-21T02:20:43.379Z",
     "locked": true
+  },
+  {
+    "id": "storage-transfers",
+    "name": "Storage Transfers",
+    "version": "1.0.0",
+    "type": "storageProvider",
+    "path": "plugins/storageProviders/storage-transfers",
+    "installedAt": "2025-12-22T02:02:43.442Z",
+    "locked": true
   }
 ]

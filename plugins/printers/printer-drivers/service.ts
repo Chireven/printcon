@@ -331,7 +331,8 @@ export class PrinterService {
 
         // Map to UI Expected Interface (PrinterDriver)
         return result.map(row => ({
-            id: row.PackageId,
+            id: row.Id.toString(),  // Use database ID for unique React keys
+            packageId: row.PackageId,  // Keep PackageId for reference
             name: row.DisplayName || row.OriginalFilename.replace(/\.pd$/, '').replace(/_/g, ' '),
             version: row.Version || '1.0.0',
             os: 'Windows x64', // Keep fallback for now
@@ -341,6 +342,30 @@ export class PrinterService {
             createdAt: row.CreatedAt
         }));
     }
+    /**
+     * Retrieves all supported models for a specific driver package.
+     * 
+     * @param packageId - Database ID of the package
+     * @returns Array of models with hardware IDs
+     */
+    public static async getDriverModels(packageId: number): Promise<{
+        modelName: string;
+        hardwareId: string;
+    }[]> {
+        const query = `
+            SELECT ModelName, HardwareId
+            FROM [plg_printer_drivers].SupportedModels
+            WHERE PackageId = @packageId
+            ORDER BY ModelName
+        `;
+
+        const results = await (await this.getDB()).query(query, { packageId });
+        return results.map((r: any) => ({
+            modelName: r.ModelName,
+            hardwareId: r.HardwareId
+        }));
+    }
+
     /**
      * Deletes a driver package and its associated data.
      * 

@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Package, Download, AlertCircle, Loader2, RefreshCw, Database, Factory, Plus, Trash2, Pencil } from 'lucide-react';
+import { Package, Download, AlertCircle, Loader2, RefreshCw, Database, Factory, Plus, Trash2, Pencil, Upload, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrinterDriver } from '../../../../src/core/types/plugin';
 import { EventHub } from '../../../../src/core/events';
@@ -13,6 +13,8 @@ import { useSettings } from '../../../../src/providers/SettingsProvider';
 import { ConfirmationModal } from '../../../../src/components/ui/ConfirmationModal';
 import AddDriverModal from './AddDriverModal';
 import EditDriverModal from './EditDriverModal';
+import DriverModelsModal from './DriverModelsModal';
+import LocalDriverUploadModal from './LocalDriverUploadModal';
 
 
 /**
@@ -26,9 +28,11 @@ export default function DriverRepository() {
     const [error, setError] = useState<string | null>(null);
     const [downloading, setDownloading] = useState<string | null>(null);
     const [driverToDelete, setDriverToDelete] = useState<{ id: string, name: string } | null>(null);
+    const [modelsDriver, setModelsDriver] = useState<any | null>(null);
     const [driverWithMissingFile, setDriverWithMissingFile] = useState<{ id: string, name: string } | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isLocalUploadOpen, setIsLocalUploadOpen] = useState(false);
     const [driverToEdit, setDriverToEdit] = useState<PrinterDriver | null>(null);
     const { highContrast } = useSettings();
 
@@ -345,12 +349,24 @@ export default function DriverRepository() {
                     </button>
                     <GuardedButton
                         requiredPermission="driver:upload"
+                        onClick={() => setIsLocalUploadOpen(true)}
+                        className={`px-3 py-2 rounded-lg transition-colors shadow-none flex items-center gap-2 text-sm ${highContrast
+                            ? 'bg-slate-800 text-white border-2 border-white'
+                            : 'text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent hover:border-slate-700'
+                            }`}
+                        title="Upload from Computer"
+                    >
+                        <Upload className="w-4 h-4" />
+                        <span>Upload from Computer</span>
+                    </GuardedButton>
+                    <GuardedButton
+                        requiredPermission="driver:upload"
                         onClick={() => setIsAddModalOpen(true)}
                         className={`p-2 rounded-lg transition-colors shadow-none ${highContrast
                             ? 'bg-slate-800 text-white border-2 border-white'
                             : 'text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent hover:border-slate-700'
                             }`}
-                        title="Add New Driver"
+                        title="Add from Server"
                     >
                         <Plus className="w-4 h-4" />
                     </GuardedButton>
@@ -376,6 +392,14 @@ export default function DriverRepository() {
                                 <td className="px-4 py-3 text-slate-400">{driver.vendor}</td>
                                 <td className="px-4 py-3 text-slate-500">{driver.os}</td>
                                 <td className="px-4 py-3 text-right flex items-center justify-end gap-2">
+                                    <button
+                                        onClick={() => setModelsDriver(driver)}
+                                        className="w-8 h-8 p-0 bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 hover:border-purple-500/30 hover:shadow-purple-500/10 items-center justify-center flex rounded-lg transition-all shadow-sm"
+                                        title="View Supported Models"
+                                    >
+                                        <Eye size={16} />
+                                    </button>
+
                                     <GuardedButton
                                         requiredPermission="driver:upload"
                                         onClick={() => handleDownload(driver.id, driver.name)}
@@ -462,6 +486,21 @@ export default function DriverRepository() {
                 description={`The driver package file for "${driverWithMissingFile?.name}" is missing from storage. The database entry can still be removed, but the physical driver file cannot be deleted. Do you want to remove the driver entry from the repository anyway?`}
                 confirmLabel="Yes, Remove Entry"
                 variant="destructive"
+            />
+
+            <LocalDriverUploadModal
+                isOpen={isLocalUploadOpen}
+                onClose={() => setIsLocalUploadOpen(false)}
+                onSuccess={() => {
+                    handleAddDriver(null);
+                    setIsLocalUploadOpen(false);
+                }}
+            />
+
+            <DriverModelsModal
+                isOpen={!!modelsDriver}
+                onClose={() => setModelsDriver(null)}
+                driver={modelsDriver}
             />
 
         </div>
