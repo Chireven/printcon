@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import DriverRepository from '../../plugins/printers/printer-drivers/ui/DriverRepository';
 // @ts-ignore - Plugins outside src
+import ServerDashboard from '../../plugins/printers/printers-printservers/ui/ServerDashboard';
+// @ts-ignore - Plugins outside src
 import MssqlSettings from '../../plugins/databaseProviders/database-mssql/ui/Settings';
 // @ts-ignore - Plugins outside src
 import PrinterDriverSettings from '../../plugins/printers/printer-drivers/ui/Settings';
@@ -607,6 +609,8 @@ function DashboardContent() {
                             <PrintersView />
                         ) : activePlugin === 'printer-drivers' ? (
                             <DriverRepository />
+                        ) : activePlugin === 'printers-printservers' ? (
+                            <ServerDashboard />
                         ) : activePlugin ? (
                             <PluginConfigContainer
                                 pluginId={activePlugin}
@@ -644,8 +648,38 @@ function DashboardContent() {
             <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
             <SystemSettingsModal isOpen={showSystemSettings} onClose={() => setShowSystemSettings(false)} plugins={plugins} />
             <PermissionEditor isOpen={showDebugPermissions} onClose={() => setShowDebugPermissions(false)} />
-            <SystemAlertModal onFix={() => {
-                setShowSystemSettings(true);
+            <SystemAlertModal onFix={async () => {
+                try {
+                    // Get database config
+                    const envResponse = await fetch('/api/system/env');
+                    const { config } = await envResponse.json();
+                    
+                    // Call schema fix
+                    const fixResponse = await fetch('/api/schema/fix', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
+                    
+                    const result = await fixResponse.json();
+                    
+                    if (result.status === 'success') {
+                        toast.success('Schema Fixed', {
+                            description: result.message || 'Database schemas created successfully'
+                        });
+                        // Refresh plugins to clear the error
+                        fetchPlugins();
+                    } else {
+                        toast.error('Schema Fix Failed', {
+                            description: result.message || 'Failed to create schemas'
+                        });
+                    }
+                } catch (error: any) {
+                    console.error('[Schema Fix] Error:', error);
+                    toast.error('Schema Fix Failed', {
+                        description: error.message || 'An error occurred while fixing schemas'
+                    });
+                }
             }} />
 
             <Toaster

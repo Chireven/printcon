@@ -9,7 +9,14 @@ const activeChallenges = new Map<string, string>();
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { action, pluginId, pin, event, data } = body;
+        const { action, pluginId, pin, event, data, userPermissions } = body;
+
+        // Extract user context for permission validation
+        // TODO: In production, get permissions from server-side session/JWT
+        // For now, accept from client (mock auth system)
+        const userContext = {
+            permissions: userPermissions || []
+        };
 
         const registryPath = path.join(process.cwd(), 'src/core/registry.json');
         let registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
@@ -38,49 +45,62 @@ export async function POST(req: NextRequest) {
                 console.log(`[API] Waiting for ${responseEvent}...`);
 
                 // Dynamic timeout based on operation type
-                let timeoutMs = 2000; // Default 2 seconds
+                let timeoutMs = 5000; // Increased to 5 seconds default for better reliability
 
                 // Long-running operations get extended timeout
                 if (event === 'REQUEST_BUILD_PACKAGE') {
-                    timeoutMs = 30000; // 30 seconds for package building
+                    timeoutMs = 60000; // 60s for build
                 } else if (event === 'REQUEST_FINALIZE_UPLOAD') {
-                    timeoutMs = 60000; // 60 seconds for file assembly (can have many files)
+                    timeoutMs = 60000; // 60s for upload
                 } else if (event === 'REQUEST_DOWNLOAD_DRIVER') {
-                    timeoutMs = 10000; // 10 seconds for downloads
+                    timeoutMs = 15000; 
                 } else if (event === 'REQUEST_FIX_SCHEMA' || event === 'REQUEST_VALIDATE_SCHEMA') {
-                    timeoutMs = 10000; // 10 seconds for schema operations
+                    timeoutMs = 15000;
                 }
 
                 return new Promise<NextResponse>((resolve) => {
+                    let isResolved = false;
+
+                    const cleanup = () => {
+                        if (!isResolved) return; // Should not happen if logic is correct
+                        EventHub.off(responseEvent, listener);
+                    };
+
                     const timeout = setTimeout(() => {
+                        if (isResolved) return;
+                        isResolved = true;
                         console.warn(`[API] Timeout waiting for ${responseEvent} after ${timeoutMs}ms`);
-                        resolve(NextResponse.json({ error: 'Gateway Timeout' }, { status: 504 }));
+                        
+                        // Cleanup listener
+                        EventHub.off(responseEvent, listener);
+                        
+                        resolve(NextResponse.json({ 
+                            error: 'Gateway Timeout - Plugin did not respond in time',
+                            code: 'TIMEOUT'
+                        }, { status: 504 }));
                     }, timeoutMs);
 
                     const listener = (payload: any) => {
+                        if (isResolved) return;
+                        
                         // Suppress noisy chunk upload logs
                         if (responseEvent !== 'RESPONSE_UPLOAD_CHUNK') {
                             console.log(`[API] Received ${responseEvent}, resolving.`, payload);
                         }
+                        
+                        isResolved = true;
                         clearTimeout(timeout);
-                        resolve(NextResponse.json(payload)); // Return the data from the plugin
+                        
+                        // Cleanup listener immediately
+                        EventHub.off(responseEvent, listener);
+                        
+                        resolve(NextResponse.json(payload));
                     };
-
-                    // We need a 'once' mechanism. EventHub.on doesn't have 'once' yet?
-                    // The current EventHub.on just pushes to array. 
-                    // We'll wrap the callback to remove itself? 
-                    // EventHub doesn't have 'off'. 
-                    // LIMITATION: This might leak listeners if we don't handle cleanup.
-                    // For now, consistent with instructions "Set up a one-time listener".
-                    // Since EventHub is simple, we'll just add it. Memory leak risk is low for this demo scope 
-                    // but ideally EventHub needs .off().
-                    // I'll implement a self-destructing wrapper logic if I can.
-                    // Actually, let's just stick to the instruction.
 
                     EventHub.on(responseEvent, listener);
 
-                    // Emit to internal listeners (Server-Side Loader)
-                    EventHub.emit(event, pluginId, 'success', data);
+                    // Emit to internal listeners (Server-Side Loader) with user context
+                    EventHub.emit(event, pluginId, 'success', data, userContext);
                 });
             }
 

@@ -9,11 +9,11 @@ const RESET = '\x1b[0m';
 // We attach it to the global scope to survive HMR and module reloads in Dev.
 
 declare global {
-    var systemEventListeners: Map<string, Array<(payload: any) => void>>;
+    var systemEventListeners: Map<string, Array<(payload: any, context?: any) => void>>;
 }
 
 export class EventHub {
-    private static get listeners(): Map<string, Array<(payload: any) => void>> {
+    private static get listeners(): Map<string, Array<(payload: any, context?: any) => void>> {
         if (!globalThis.systemEventListeners) {
             globalThis.systemEventListeners = new Map();
         }
@@ -30,7 +30,8 @@ export class EventHub {
         event: SystemEvent['event'],
         pluginId: string,
         status: 'success' | 'failure' = 'success',
-        payloadOrPin?: any
+        payloadOrPin?: any,
+        context?: any
     ): Promise<void> {
         // Flexible Payload Handling:
         // If the 4th arg is an object, merge it. If string, treat as PIN (legacy).
@@ -48,7 +49,7 @@ export class EventHub {
         // Server-Side: Notify local listeners (Request-Response Pattern)
         if (this.listeners.has(event)) {
             console.log(`${GREEN}[EventHub]${RESET} Invoking local listeners for ${GREEN}${event}${RESET}`);
-            this.listeners.get(event)?.forEach(callback => callback(payload.data));
+            this.listeners.get(event)?.forEach(callback => callback(payload.data, context));
         }
 
         // Broadcast to SSE (Client-Side) via Bridge
@@ -61,7 +62,7 @@ export class EventHub {
         }
     }
 
-    static on(event: string, callback: (payload: any) => void): void {
+    static on(event: string, callback: (payload: any, context?: any) => void): void {
         console.log(`${GREEN}[EventHub]${RESET} Subscribing to: ${GREEN}${event}${RESET}`);
         if (!this.listeners.has(event)) {
             this.listeners.set(event, []);
@@ -69,7 +70,7 @@ export class EventHub {
         this.listeners.get(event)?.push(callback);
     }
 
-    static off(event: string, callback: (payload: any) => void): void {
+    static off(event: string, callback: (payload: any, context?: any) => void): void {
         const listeners = this.listeners.get(event);
         if (listeners) {
             const index = listeners.indexOf(callback);

@@ -5,5 +5,12 @@
       "value": "Ready",
       "severity": "success"
     }
+  ],
+  "printers-printservers": [
+    {
+      "label": "Database",
+      "value": "Ready",
+      "severity": "success"
+    }
   ]
 }

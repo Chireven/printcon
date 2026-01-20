@@ -24,7 +24,19 @@ const INITIAL_USER: User = {
     name: 'Joe Demo',
     email: 'joe@printcon.enterprise',
     role: 'viewer', // Start as restricted
-    permissions: ['drivers:read', 'read:printers', 'debugmode.activate', 'plugin.pack', 'plugin.delete', 'plugin.update', 'plugin.lock']
+    permissions: [
+        'drivers:read', 
+        'read:printers', 
+        'debugmode.activate', 
+        'plugin.pack', 
+        'plugin.delete', 
+        'plugin.update', 
+        'plugin.lock',
+        'printservers.read',
+        'printservers.create',
+        'printservers.update',
+        'printservers.delete'
+    ]
 };
 
 export function MockAuthProvider({ children }: { children: React.ReactNode }) {

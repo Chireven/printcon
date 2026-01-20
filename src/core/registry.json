@@ -54,10 +54,11 @@
   },
   {
     "id": "printers-printservers",
-    "name": "Printers Printservers",
+    "name": "Print Servers",
     "version": "1.0.0",
     "type": "printers",
     "path": "plugins/printers/printers-printservers",
+    "active": true,
     "installedAt": "2026-01-20T02:30:04.888Z"
   },
   {

@@ -1,11 +1,56 @@
 {
   "id": "printers-printservers",
-  "name": "Printers Printservers",
+  "name": "Print Servers",
   "version": "1.0.0",
   "type": "printers",
   "coreVersion": "^1.0.0",
   "requiredPermissions": [],
   "entryPoints": {
-    "main": "index.ts"
+    "main": "index.ts",
+    "ui": "ui/ServerDashboard.tsx"
+  },
+  "database": {
+    "schema": "plg_printers_printservers",
+    "tables": [
+      {
+        "name": "Servers",
+        "columns": [
+          {
+            "name": "Id",
+            "type": "INT",
+            "nullable": false,
+            "primaryKey": true,
+            "identity": true
+          },
+          {
+            "name": "Hostname",
+            "type": "NVARCHAR(255)",
+            "nullable": false
+          },
+          {
+            "name": "IPAddress",
+            "type": "NVARCHAR(50)",
+            "nullable": true
+          },
+          {
+            "name": "Status",
+            "type": "NVARCHAR(50)",
+            "nullable": false,
+            "defaultValue": "'Active'"
+          },
+          {
+            "name": "CreatedAt",
+            "type": "DATETIME2",
+            "nullable": false,
+            "defaultValue": "GETUTCDATE()"
+          },
+          {
+            "name": "ModifiedAt",
+            "type": "DATETIME2",
+            "nullable": true
+          }
+        ]
+      }
+    ]
   }
 }

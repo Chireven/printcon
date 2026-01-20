@@ -34,6 +34,15 @@ const PERMISSION_GROUPS = [
         ]
     },
     {
+        title: 'Print Servers',
+        permissions: [
+            { id: 'printservers.read', label: 'View Print Servers' },
+            { id: 'printservers.create', label: 'Add Print Servers' },
+            { id: 'printservers.update', label: 'Edit Print Servers' },
+            { id: 'printservers.delete', label: 'Delete Print Servers' }
+        ]
+    },
+    {
         title: 'System',
         permissions: [
             { id: 'debugmode.activate', label: 'Activate Debug Mode' },
