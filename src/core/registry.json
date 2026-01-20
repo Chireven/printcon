@@ -43,5 +43,29 @@
     "path": "plugins/storageProviders/storage-transfers",
     "installedAt": "2025-12-22T02:02:43.442Z",
     "locked": true
+  },
+  {
+    "id": "printer-ports",
+    "name": "Printer Ports",
+    "version": "1.0.0",
+    "type": "printers",
+    "path": "plugins/printers/printer-ports",
+    "installedAt": "2026-01-20T02:24:18.221Z"
+  },
+  {
+    "id": "printers-printservers",
+    "name": "Printers Printservers",
+    "version": "1.0.0",
+    "type": "printers",
+    "path": "plugins/printers/printers-printservers",
+    "installedAt": "2026-01-20T02:30:04.888Z"
+  },
+  {
+    "id": "printers-printDevices",
+    "name": "Printers PrintDevices",
+    "version": "1.0.0",
+    "type": "printers",
+    "path": "plugins/printers/printers-printDevices",
+    "installedAt": "2026-01-20T02:43:40.287Z"
   }
 ]

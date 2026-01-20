@@ -4,6 +4,12 @@ import path from 'path';
 import { EventHub } from '../../../../core/events';
 import { SystemStatus } from '../../../../core/system-status';
 
+// ANSI color codes for SSE logs (Cyan for real-time streaming)
+const CYAN = '\x1b[36m';
+const RESET = '\x1b[0m';
+const YELLOW = '\x1b[33m';
+const RED = '\x1b[31m';
+
 // Make clients Set global to survive Next.js module reloads
 declare global {
     var sseClients: Set<(data: any) => void>;
@@ -35,7 +41,7 @@ function setupWatcher() {
             if (eventType === 'change') {
                 clearTimeout(regTimer);
                 regTimer = setTimeout(() => {
-                    console.log('[SSE] Registry changed, broadcasting update...');
+                    console.log(`${CYAN}[SSE]${RESET} Registry changed, broadcasting update...`);
                     broadcastSystemEvent({
                         event: 'REGISTRY_UPDATED',
                         data: { timestamp: Date.now() }
@@ -78,7 +84,7 @@ function setupWatcher() {
                             }
                         });
                     } catch (e) {
-                        console.error('[SSE] Status read error', e);
+                        console.error(`${CYAN}[SSE]${RESET} ${RED}Status read error${RESET}`, e);
                     }
                 }, 1000);
             }
@@ -86,7 +92,7 @@ function setupWatcher() {
     }
 
     isWatching = true;
-    console.log('[SSE] Watchers started');
+    console.log(`${CYAN}[SSE]${RESET} Watchers started`);
 }
 
 export async function GET(req: NextRequest) {
@@ -101,7 +107,7 @@ export async function GET(req: NextRequest) {
     };
 
     getClients().add(sendEvent);
-    console.log(`[SSE] 👤 New client connected. Total clients: ${getClients().size}`);
+    console.log(`${CYAN}[SSE]${RESET} 👤 New client connected. Total clients: ${getClients().size}`);
 
     // [Replay] Push any active system alerts to the new client
     try {
@@ -110,7 +116,7 @@ export async function GET(req: NextRequest) {
             if (Array.isArray(statusList)) {
                 statusList.forEach((s: any) => {
                     if (s.severity === 'error') {
-                        console.log(`[SSE] Replaying Alert for ${pluginId}: ${s.value}`);
+                        console.log(`${CYAN}[SSE]${RESET} Replaying Alert for ${pluginId}: ${s.value}`);
                         sendEvent({
                             event: 'SYSTEM_ALERT',
                             data: {
@@ -125,7 +131,7 @@ export async function GET(req: NextRequest) {
             }
         });
     } catch (e) {
-        console.error('[SSE] Failed to replay alerts:', e);
+        console.error(`${CYAN}[SSE]${RESET} ${RED}Failed to replay alerts:${RESET}`, e);
     }
 
     // Keep the connection alive
@@ -136,7 +142,7 @@ export async function GET(req: NextRequest) {
     req.signal.addEventListener('abort', () => {
         clearInterval(heartbeat);
         getClients().delete(sendEvent);
-        console.log(`[SSE] 👋 Client disconnected. Remaining clients: ${getClients().size}`);
+        console.log(`${CYAN}[SSE]${RESET} 👋 Client disconnected. Remaining clients: ${getClients().size}`);
         writer.close();
     });
 
@@ -153,18 +159,18 @@ export async function GET(req: NextRequest) {
 export function broadcastSystemEvent(event: any) {
     const timestamp = new Date().toISOString();
     const clients = getClients();
-    console.log(`[SSE] 📡 [${timestamp}] Broadcasting event: ${event.event} to ${clients.size} client(s)`);
-    console.log(`[SSE] 📦 Event data:`, JSON.stringify(event).substring(0, 200));
+    console.log(`${CYAN}[SSE]${RESET} 📡 [${timestamp}] Broadcasting event: ${CYAN}${event.event}${RESET} to ${clients.size} client(s)`);
+    console.log(`${CYAN}[SSE]${RESET} 📦 Event data:`, JSON.stringify(event).substring(0, 200));
 
     if (clients.size === 0) {
-        console.warn(`[SSE] ⚠️  No clients connected to receive ${event.event}`);
+        console.warn(`${CYAN}[SSE]${RESET} ${YELLOW}⚠️  No clients connected to receive ${event.event}${RESET}`);
     }
 
     clients.forEach((send) => {
         try {
             send(event);
         } catch (e) {
-            console.error('[SSE] ❌ Failed to send to client:', e);
+            console.error(`${CYAN}[SSE]${RESET} ${RED}❌ Failed to send to client:${RESET}`, e);
         }
     });
 }

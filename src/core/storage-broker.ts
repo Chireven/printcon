@@ -1,5 +1,6 @@
 import type { IStorageProvider } from './types/storage';
 import path from 'path';
+import { Logger } from './logger';
 
 /**
  * Storage Broker
@@ -27,13 +28,13 @@ export class StorageBroker {
 
         let { providerPlugin, providerConfig } = config;
 
-        console.log(`[StorageBroker] Initializing with provider: ${providerPlugin}`);
+        Logger.info('storageProvider', 'broker', `Initializing with provider: ${providerPlugin}`);
 
         try {
             // Handle Variable Resolution for repositoryPath
             if (providerConfig.repositoryPath && providerConfig.repositoryPath.startsWith('@')) {
                 const variableKey = providerConfig.repositoryPath.substring(1); // Remove '@'
-                console.log(`[StorageBroker] Resolving dynamic path (BACKGROUND): ${variableKey}`);
+                Logger.info('storageProvider', 'broker', `Resolving dynamic path (BACKGROUND): ${variableKey}`);
 
                 // Start background resolution
                 const resolveTask = (async () => {
@@ -46,7 +47,7 @@ export class StorageBroker {
                         // If waiting, we probably want a shorter timeout or just let caller handle it?
                         // Let's use existing logic.
                         const resolvedPath = await VariableService.get<string>(variableKey, 30000); // 30s timeout
-                        console.log(`[StorageBroker] Resolved ${variableKey} -> ${resolvedPath}`);
+                        Logger.info('storageProvider', 'broker', `Resolved ${variableKey} -> ${resolvedPath}`);
 
                         // Update local config
                         providerConfig.repositoryPath = resolvedPath;
@@ -57,13 +58,13 @@ export class StorageBroker {
                         // Subscribe to updates for Hot Reloading
                         EventHub.on('system:variable:updated', async (payload: any) => {
                             if (payload.key === variableKey) {
-                                console.log(`[StorageBroker] Hot-Reloading storage path: ${payload.value}`);
+                                Logger.info('storageProvider', 'broker', `Hot-Reloading storage path: ${payload.value}`);
                                 await StorageBroker.swapProvider(providerPlugin, { ...providerConfig, repositoryPath: payload.value });
                             }
                         });
 
                     } catch (err: any) {
-                        console.error(`[StorageBroker] Failed to resolve storage path variable: ${err.message}`);
+                        Logger.error('storageProvider', 'broker', `Failed to resolve storage path variable: ${err.message}`);
                         // System will remain uninitialized
                         throw err;
                     }
@@ -81,7 +82,7 @@ export class StorageBroker {
             await StorageBroker.setupProvider(providerPlugin, providerConfig);
 
         } catch (error: any) {
-            console.error(`[StorageBroker] Failed to initialize provider: ${error.message}`);
+            Logger.error('storageProvider', 'broker', `Failed to initialize provider: ${error.message}`);
             // Don't throw, just log. This allows the app to start even if storage is broken.
             if (waitForDynamic) throw error;
         }
@@ -101,7 +102,7 @@ export class StorageBroker {
             );
         }
 
-        console.log(`[StorageBroker] Loading provider from: ${providerEntry.path}`);
+        Logger.info('storageProvider', 'broker', `Loading provider from: ${providerEntry.path}`);
 
         const fullPath = path.join(process.cwd(), providerEntry.path, 'index.ts');
 
@@ -113,7 +114,7 @@ export class StorageBroker {
         if (typeof providerModule[factoryName] === 'function') {
             StorageBroker.provider = providerModule[factoryName](providerConfig.repositoryPath || providerConfig);
             StorageBroker.initialized = true;
-            console.log(`[StorageBroker] Successfully initialized with ${providerPlugin}`);
+            Logger.info('storageProvider', 'broker', `Successfully initialized with ${providerPlugin}`);
         } else {
             throw new Error(
                 `Storage provider '${providerPlugin}' does not export factory function '${factoryName}'.`
@@ -142,10 +143,10 @@ export class StorageBroker {
 
             if (typeof providerModule[factoryName] === 'function') {
                 StorageBroker.provider = providerModule[factoryName](config.repositoryPath || config);
-                console.log(`[StorageBroker] Provider hot-swapped successfully.`);
+                Logger.info('storageProvider', 'broker', `Provider hot-swapped successfully.`);
             }
         } catch (err) {
-            console.error('[StorageBroker] Hot-swap failed', err);
+            Logger.error('storageProvider', 'broker', 'Hot-swap failed', err);
         }
     }
 
@@ -156,7 +157,7 @@ export class StorageBroker {
      * @param buffer - File content
      */
     static async write(relativePath: string, buffer: Buffer): Promise<void> {
-        console.log('[StorageBroker] Writing file (Class Ref Check):', relativePath);
+        Logger.info('storageProvider', 'broker', `Writing file: ${relativePath}`);
         StorageBroker.ensureInitialized();
         return StorageBroker.provider!.write(relativePath, buffer);
     }

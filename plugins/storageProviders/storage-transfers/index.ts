@@ -10,6 +10,7 @@
 
 import type { PluginInitializer } from '../../../src/core/types/plugin';
 import { UploadSessionManager } from './upload-session-manager';
+import { Logger } from '../../../src/core/logger';
 import path from 'path';
 
 export const initialize: PluginInitializer = async (api) => {

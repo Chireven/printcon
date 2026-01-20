@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Package, Download, AlertCircle, Loader2, RefreshCw, Database, Factory, Plus, Trash2, Pencil, Upload, Eye } from 'lucide-react';
+import { Package, Download, AlertCircle, Loader2, RefreshCw, Database, Factory, Plus, Trash2, Pencil, Upload, Eye, HardDrive } from 'lucide-react';
 import { toast } from 'sonner';
 import { PrinterDriver } from '../../../../src/core/types/plugin';
 import { EventHub } from '../../../../src/core/events';
@@ -15,6 +15,7 @@ import AddDriverModal from './AddDriverModal';
 import EditDriverModal from './EditDriverModal';
 import DriverModelsModal from './DriverModelsModal';
 import LocalDriverUploadModal from './LocalDriverUploadModal';
+import LocalInboxDriverModal from './LocalInboxDriverModal';
 
 
 /**
@@ -33,6 +34,7 @@ export default function DriverRepository() {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isLocalUploadOpen, setIsLocalUploadOpen] = useState(false);
+    const [isLocalInboxOpen, setIsLocalInboxOpen] = useState(false);
     const [driverToEdit, setDriverToEdit] = useState<PrinterDriver | null>(null);
     const { highContrast } = useSettings();
 
@@ -361,6 +363,18 @@ export default function DriverRepository() {
                     </GuardedButton>
                     <GuardedButton
                         requiredPermission="driver:upload"
+                        onClick={() => setIsLocalInboxOpen(true)}
+                        className={`px-3 py-2 rounded-lg transition-colors shadow-none flex items-center gap-2 text-sm ${highContrast
+                            ? 'bg-slate-800 text-white border-2 border-white'
+                            : 'text-indigo-400 hover:text-white hover:bg-indigo-500/20 border border-transparent hover:border-indigo-500/30'
+                            }`}
+                        title="Import from Windows DriverStore"
+                    >
+                        <HardDrive className="w-4 h-4" />
+                        <span>Import from Windows</span>
+                    </GuardedButton>
+                    <GuardedButton
+                        requiredPermission="driver:upload"
                         onClick={() => setIsAddModalOpen(true)}
                         className={`p-2 rounded-lg transition-colors shadow-none ${highContrast
                             ? 'bg-slate-800 text-white border-2 border-white'
@@ -501,6 +515,15 @@ export default function DriverRepository() {
                 isOpen={!!modelsDriver}
                 onClose={() => setModelsDriver(null)}
                 driver={modelsDriver}
+            />
+
+            <LocalInboxDriverModal
+                open={isLocalInboxOpen}
+                onClose={() => setIsLocalInboxOpen(false)}
+                onSuccess={() => {
+                    handleAddDriver(null);
+                    setIsLocalInboxOpen(false);
+                }}
             />
 
         </div>

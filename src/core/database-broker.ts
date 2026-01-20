@@ -1,5 +1,6 @@
 import type { IDatabaseProvider, ISqlParams } from '../lib/interfaces/database';
 import path from 'path';
+import { Logger } from './logger';
 
 export interface DatabaseConfig {
     providerPlugin: string;
@@ -33,11 +34,11 @@ export class DatabaseBroker {
         if (providerPlugin.startsWith('@')) {
             const { VariableService } = await import('./variables');
             const resolved = await VariableService.get<string>(providerPlugin.substring(1));
-            console.log(`[DatabaseBroker] Resolved provider plugin: ${providerPlugin} -> ${resolved}`);
+            Logger.info('databaseProvider', 'broker', `Resolved provider plugin: ${providerPlugin} -> ${resolved}`);
             providerPlugin = resolved;
         }
 
-        console.log(`[DatabaseBroker] Initializing with provider: ${providerPlugin}`);
+        Logger.info('databaseProvider', 'broker', `Initializing with provider: ${providerPlugin}`);
 
         try {
             // Resolve Variables in Config
@@ -46,7 +47,7 @@ export class DatabaseBroker {
             );
 
             if (keysToResolve.length > 0) {
-                console.log(`[DatabaseBroker] Resolving variables for keys: ${keysToResolve.join(', ')}`);
+                Logger.info('databaseProvider', 'broker', `Resolving variables for keys: ${keysToResolve.join(', ')}`);
 
                 // Import VariableService dynamically
                 const { VariableService } = await import('./variables');
@@ -73,7 +74,7 @@ export class DatabaseBroker {
             await DatabaseBroker.setupProvider(providerPlugin, providerConfig);
 
         } catch (error: any) {
-            console.error(`[DatabaseBroker] Failed to initialize provider: ${error.message}`);
+            Logger.error('databaseProvider', 'broker', `Failed to initialize provider: ${error.message}`);
             throw error; // Rule #1: Fail fast if infrastructure fails
         }
     }
@@ -89,7 +90,7 @@ export class DatabaseBroker {
             );
         }
 
-        console.log(`[DatabaseBroker] Loading provider from: ${providerEntry.path}`);
+        Logger.info('databaseProvider', 'broker', `Loading provider from: ${providerEntry.path}`);
         const fullPath = path.join(process.cwd(), providerEntry.path, (providerEntry.entry || 'index.ts'));
 
         // Use Jiti for runtime TypeScript loading (Consistent with loader.ts)
@@ -104,7 +105,7 @@ export class DatabaseBroker {
         if (typeof providerModule[factoryName] === 'function') {
             DatabaseBroker.provider = providerModule[factoryName](providerConfig);
             DatabaseBroker.initialized = true;
-            console.log(`[DatabaseBroker] Successfully initialized with ${providerPlugin}`);
+            Logger.info('databaseProvider', 'broker', `Successfully initialized with ${providerPlugin}`);
         } else {
             throw new Error(
                 `Database provider '${providerPlugin}' does not export factory function '${factoryName}'.`

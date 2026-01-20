@@ -98,7 +98,7 @@ export class PDPackageBuilder {
     }
 
     /**
-     * Parses metadata from an INF file.
+     * Parses metadata from an INF file using INFpossible.
      * 
      * @param infPath - Path to the INF file
      * @returns Extracted driver metadata
@@ -111,186 +111,32 @@ export class PDPackageBuilder {
         hardwareIds: string[];
         models: string[];
     }> {
+        // Read INF file content
         const content = await fs.readFile(infPath, 'utf8');
-        const lines = content.split('\n').map(l => l.trim());
+        const fileName = path.basename(infPath);
 
-        // 0. Helper: Parse [Strings] section for variable substitution
-        const stringsMap: Record<string, string> = {};
-        const stringsMatch = content.match(/\[Strings\]\s*\n([^\[]*)/i);
-        if (stringsMatch) {
-            const stringLines = stringsMatch[1].split('\n');
-            for (const line of stringLines) {
-                // Key = "Value"
-                const match = line.match(/^\s*([^=]+)\s*=\s*"([^"]+)"/);
-                if (match) {
-                    stringsMap[match[1].trim().toLowerCase()] = match[2];
-                } else {
-                    // Key = Value (no quotes)
-                    const matchNoQuote = line.match(/^\s*([^=]+)\s*=\s*([^"\s]+.*)/);
-                    if (matchNoQuote) {
-                        stringsMap[matchNoQuote[1].trim().toLowerCase()] = matchNoQuote[2].trim();
-                    }
-                }
-            }
-        }
+        // Import INFpossible modules
+        const { InfParser } = await import('./infpossible/parser');
+        const { InfResolver } = await import('./infpossible/resolver');
+        const { InfAnalyzer } = await import('./infpossible/analyzer');
 
-        const resolveString = (val: string): string => {
-            if (val.startsWith('%') && val.endsWith('%')) {
-                const key = val.slice(1, -1).toLowerCase();
-                return stringsMap[key] || val;
-            }
-            return val;
-        };
+        // Parse INF file
+        const parsedInf = InfParser.parseInfFile(content, fileName);
 
-        // Extract driver name from file name as fallback
-        const fallbackName = path.basename(infPath, '.inf');
+        // Resolve string substitutions
+        InfResolver.resolveStrings(parsedInf);
 
-        // Extract version (look for DriverVer line)
-        let version = '1.0.0';
-        const versionLine = lines.find(l => l.match(/^DriverVer\s*=/i));
-        if (versionLine) {
-            const versionMatch = versionLine.match(/DriverVer\s*=\s*[^,]*,\s*([0-9.]+)/i);
-            if (versionMatch) {
-                version = versionMatch[1];
-            }
-        }
+        // Extract metadata
+        const metadata = InfAnalyzer.extractDriverMetadata(parsedInf);
 
-        // Extract manufacturer - try multiple patterns
-        let manufacturer = 'Unknown';
-
-        // Pattern 1: [Manufacturer] section with company name
-        const mfgSectionMatch = content.match(/\[Manufacturer\]\s*\n\s*([^=\n]+)\s*=/i);
-        if (mfgSectionMatch) {
-            manufacturer = resolveString(mfgSectionMatch[1].trim().replace(/"/g, ''));
-        } else {
-            // Pattern 2: Look for Provider in [Version] section
-            const providerMatch = content.match(/Provider\s*=\s*([^,\n]+)/i);
-            if (providerMatch) {
-                manufacturer = resolveString(providerMatch[1].trim().replace(/"/g, ''));
-            }
-        }
-
-        // Extract model names and hardware IDs
-        const models: string[] = [];
-        const hardwareIds: string[] = [];
-
-        // Find manufacturer model sections (e.g., [Brother.NTamd64.6.1])
-        const mfgModelSections: string[] = [];
-        const sectionHeaderRegex = /^\[([^\]]+)\]/gm;
-        let sectionMatch;
-
-        // Need to check un-resolved raw string for section matching logic previously used?
-        // Actually, the section names in INF usually use the raw token if it's a token.
-        // But let's look for sections that MATCH the manufacturer we found.
-
-        while ((sectionMatch = sectionHeaderRegex.exec(content)) !== null) {
-            const sectionName = sectionMatch[1];
-            // Look for sections that contain manufacturer name or model definitions
-            // Case 1: Standard [MfgName]
-            // Case 2: [MfgName.Server.NTx86]
-            if (sectionName.toLowerCase().includes(manufacturer.toLowerCase().substring(0, 5)) ||
-                sectionName.toLowerCase().includes('models') ||
-                sectionName.match(/\.(nt|ntamd64|ntx86|ntarm)/i)) {
-                mfgModelSections.push(sectionName);
-            }
-        }
-
-        // Parse model definitions from manufacturer sections
-        for (const sectionName of mfgModelSections) {
-            const sectionRegex = new RegExp(`\\[${sectionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]\\s*\\n([^\\[]*)`, 'i');
-            const sectionContent = content.match(sectionRegex);
-
-            if (sectionContent && sectionContent[1]) {
-                const sectionLines = sectionContent[1].split('\n');
-
-                for (const line of sectionLines) {
-                    if (!line.trim() || line.trim().startsWith(';')) continue;
-
-                    // Pattern: "Model Name" = InstallSection, HWID
-                    // Verify if Model Name is a token
-                    const modelMatch = line.match(/"([^"]+)"\s*=\s*([^,]+)(?:,\s*([^\s;]+))?/);
-                    if (modelMatch) {
-                        const rawModelName = modelMatch[1];
-                        const hwid = modelMatch[3];
-
-                        const modelName = resolveString(rawModelName);
-
-                        if (modelName && !models.includes(modelName)) {
-                            models.push(modelName);
-                        }
-                        if (hwid && !hardwareIds.includes(hwid)) {
-                            hardwareIds.push(hwid);
-                        }
-                    } else {
-                        // Pattern without quotes: ModelName = InstallSection, HWID
-                        const altMatch = line.match(/^([^=]+?)\s*=\s*([^,]+)(?:,\s*([^\s;]+))?/);
-                        if (altMatch && !altMatch[1].startsWith('%')) { // If it starts with %, it's a token key without quotes
-                            // Actually even without quotes, it can be a token %Key%
-                            // The regex !startsWith('%') is suspicious if we want to support token keys.
-                            // But usually keys are like %Key% = InstallSection.
-
-                            let rawName = altMatch[1].trim();
-                            const hwid = altMatch[3];
-                            const modelName = resolveString(rawName);
-
-                            if (modelName && !models.includes(modelName)) {
-                                models.push(modelName);
-                            }
-                            if (hwid && !hardwareIds.includes(hwid)) {
-                                hardwareIds.push(hwid);
-                            }
-                        } else if (altMatch && altMatch[1].startsWith('%')) {
-                            // Handle explicit token keys
-                            let rawName = altMatch[1].trim();
-                            const hwid = altMatch[3];
-                            const modelName = resolveString(rawName);
-
-                            if (modelName && !models.includes(modelName)) {
-                                models.push(modelName);
-                            }
-                            if (hwid && !hardwareIds.includes(hwid)) {
-                                hardwareIds.push(hwid);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // If no models found, fallback scan logic...
-        if (models.length === 0) {
-            // ... (existing fallback logic, but maybe use stringsMap?) 
-            // Existing logic scanned [Strings] specifically.
-            // Since we parsed stringsMap, we can iterate it.
-            const potentialModels = Object.values(stringsMap).filter(v => v.length > 3 && v.length < 100);
-            if (potentialModels.length > 0) {
-                // Heuristic: Pick longest? Or first?
-                models.push(potentialModels[0]);
-            }
-        }
-
-        // Extract display name (prefer first model name, fallback to file name)
-        const displayName = models.length > 0 ? models[0] : fallbackName;
-
-        // Determine architecture
-        const architecture = ['x64'];
-        if (content.match(/\.(ntamd64|amd64)/i)) {
-            if (!architecture.includes('amd64')) architecture.push('amd64');
-        }
-        if (content.match(/\.(ntarm64|arm64)/i)) {
-            architecture.push('arm64');
-        }
-        if (content.match(/\.(ntx86|x86)/i)) {
-            architecture.push('x86');
-        }
-
+        // Return in format expected by buildPackage
         return {
-            displayName,
-            version,
-            manufacturer,
-            architecture: architecture.length > 0 ? architecture : ['x64'], // Default to x64 if nothing found
-            hardwareIds: hardwareIds.length > 0 ? hardwareIds : ['UNKNOWN'],
-            models: models.length > 0 ? models : [displayName]
+            displayName: metadata.displayName,
+            version: metadata.version,
+            manufacturer: metadata.manufacturer,
+            architecture: metadata.architecture,
+            hardwareIds: metadata.hardwareIds,
+            models: metadata.models
         };
     }
 
@@ -304,7 +150,7 @@ export class PDPackageBuilder {
     static async buildPackage(
         sourcePath: string,
         user: string
-    ): Promise<{ packageBuffer: Buffer; manifest: PDManifestSchema }> {
+    ): Promise<{ packageBuffer: Buffer; manifest: PDManifestSchema; contentHash: string }> {
         // 1. Validate INF path
         const validation = await this.validateInfPath(sourcePath);
         if (!validation.valid || !validation.infFile) {

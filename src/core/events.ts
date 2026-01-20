@@ -1,5 +1,9 @@
 import { SystemEvent } from './types/events';
 
+// ANSI color codes for console output
+const GREEN = '\x1b[32m';
+const RESET = '\x1b[0m';
+
 // Global Event Bus (Singleton via globalThis)
 // Rule: EventHub must be accessible to both instrumentation (Node) and API routes (Edge/Node)
 // We attach it to the global scope to survive HMR and module reloads in Dev.
@@ -39,11 +43,11 @@ export class EventHub {
         }
 
         const payload = { event, data: eventData };
-        console.log(`[EventHub] Emitting: ${event} (Listeners: ${this.listeners.get(event)?.length || 0})`);
+        console.log(`${GREEN}[EventHub]${RESET} Emitting: ${GREEN}${event}${RESET} (Listeners: ${this.listeners.get(event)?.length || 0})`);
 
         // Server-Side: Notify local listeners (Request-Response Pattern)
         if (this.listeners.has(event)) {
-            console.log(`[EventHub] Invoking local listeners for ${event}`);
+            console.log(`${GREEN}[EventHub]${RESET} Invoking local listeners for ${GREEN}${event}${RESET}`);
             this.listeners.get(event)?.forEach(callback => callback(payload.data));
         }
 
@@ -58,7 +62,7 @@ export class EventHub {
     }
 
     static on(event: string, callback: (payload: any) => void): void {
-        console.log(`[EventHub] Subscribing to: ${event}`);
+        console.log(`${GREEN}[EventHub]${RESET} Subscribing to: ${GREEN}${event}${RESET}`);
         if (!this.listeners.has(event)) {
             this.listeners.set(event, []);
         }

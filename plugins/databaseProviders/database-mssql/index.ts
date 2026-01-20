@@ -23,11 +23,21 @@ export class MssqlProvider implements IDatabaseProvider {
 
         try {
             const effectiveConfig = this.getEffectiveConfig();
+
+            // Validate required config
+            if (!effectiveConfig.server) {
+                throw new Error('Database server is not configured. Check DB_SERVER environment variable or settings.');
+            }
+            if (!effectiveConfig.database) {
+                throw new Error('Database name is not configured. Check DB_NAME environment variable or settings.');
+            }
+
             Logger.info('databaseProvider', 'mssql', `Connecting to ${effectiveConfig.server} (${effectiveConfig.database})`);
             this.pool = await new sql.ConnectionPool(effectiveConfig).connect();
         } catch (err: any) {
-            Logger.error('databaseProvider', 'mssql', 'Connection failed', err);
-            throw err;
+            const cleanError = this.extractErrorMessage(err);
+            Logger.error('databaseProvider', 'mssql', 'Connection failed', cleanError);
+            throw new Error(cleanError);
         }
     }
 
@@ -212,21 +222,21 @@ export class MssqlProvider implements IDatabaseProvider {
 
         let server = raw.server || process.env.DB_SERVER || 'localhost';
 
-        // Handle Instance Name
+        // Handle Instance Name (use single backslash for SQL Server)
         if (raw.instance && raw.instance.trim() !== '') {
-            // If server doesn't already have instance syntax (server\\instance)
-            if (!server.includes('\\\\')) {
-                server = `${server}\\\\${raw.instance}`;
+            // If server doesn't already have instance syntax (server\instance)
+            if (!server.includes('\\')) {
+                server = `${server}\\${raw.instance}`;
             }
         } else if (process.env.DB_INSTANCE) {
-            if (!server.includes('\\\\')) {
-                server = `${server}\\\\${process.env.DB_INSTANCE}`;
+            if (!server.includes('\\')) {
+                server = `${server}\\${process.env.DB_INSTANCE}`;
             }
         }
 
         const config: sql.config = {
             server: server,
-            database: raw.database || process.env.DB_NAME!,
+            database: raw.database || process.env.DB_NAME || '',
             options: {
                 encrypt: true, // Azure required
                 trustServerCertificate: true // Self-signed certs
@@ -242,11 +252,49 @@ export class MssqlProvider implements IDatabaseProvider {
             (config as any).options.trustedConnection = true;
         } else {
             // SQL Auth
-            config.user = raw.username || process.env.DB_USER!;
-            config.password = raw.password || process.env.DB_PASSWORD!;
+            config.user = raw.username || process.env.DB_USER || '';
+            config.password = raw.password || process.env.DB_PASSWORD || '';
         }
 
         return config;
+    }
+
+    /**
+     * Extracts a clean, human-readable error message from mssql errors.
+     * MSSQL errors can be deeply nested with XML/JSON structures.
+     */
+    private extractErrorMessage(err: any): string {
+        // Try to get the most meaningful message
+        if (typeof err === 'string') return err;
+
+        // Check for nested originalError (common in mssql driver)
+        if (err?.originalError?.message) {
+            return err.originalError.message;
+        }
+
+        // Check for nested info (connection errors)
+        if (err?.originalError?.info?.message) {
+            return err.originalError.info.message;
+        }
+
+        // Standard message
+        if (err?.message) {
+            // Strip XML/JSON garbage if present
+            let msg = err.message;
+
+            // Sometimes errors have XML-like content, extract just the text
+            if (msg.includes('<') && msg.includes('>')) {
+                // Try to extract text between tags or just use the first line
+                const firstLine = msg.split('\n')[0];
+                if (firstLine.length < msg.length) {
+                    msg = firstLine;
+                }
+            }
+
+            return msg;
+        }
+
+        return 'Unknown database error';
     }
 }
 
